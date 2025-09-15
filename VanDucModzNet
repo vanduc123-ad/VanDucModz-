@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Header: Telegram & Facebook</title>
+  <style>
+    :root{
+      --bg:#0f1724;
+      --card:#0b1220;
+      --accent:#2ea7e0;
+      --text:#e6eef6;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:linear-gradient(180deg,#081124 0%, #06101a 100%); color:var(--text);}
+    .topbar{
+      max-width:1100px;margin:28px auto;padding:12px 18px;background:rgba(255,255,255,0.03);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6);
+    }
+    .left, .right{display:flex;align-items:center;gap:12px}
+    a{color:inherit;text-decoration:none}
+
+    /* Telegram logo box */
+    .tg{
+      display:inline-flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;background:linear-gradient(135deg, rgba(46,167,224,0.12), rgba(46,167,224,0.06));
+    }
+    .tg svg{width:28px;height:28px;display:block}
+    .tg .label{font-weight:600}
+
+    /* Facebook area */
+    .fb{display:inline-flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;background:linear-gradient(135deg, rgba(59,89,152,0.08), rgba(59,89,152,0.04));}
+    .fb svg{width:24px;height:24px}
+    .fb .name{font-weight:700}
+
+    /* responsive */
+    @media (max-width:520px){
+      .topbar{flex-direction:column;align-items:stretch}
+      .left, .right{justify-content:center}
+    }
+  </style>
+</head>
+<body>
+  <!--
+    Ghi chú:
+    - Link Telegram đang set sẵn tới t.me/VanDucModzNet
+    - Link Facebook mặc định là '#'. Thay bằng đường dẫn trang Facebook thật nếu bạn muốn.
+    - Bạn có thể chỉnh màu, font, hoặc thêm icon bằng cách sửa CSS hoặc SVG.
+  -->
+
+  <header class="topbar" role="banner">
+    <div class="left">
+      <a class="tg" href="https://t.me/VanDucModzNet" target="_blank" rel="noopener noreferrer" aria-label="Telegram VanDucModzNet">
+        <!-- Telegram SVG (simple) -->
+        <svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+          <defs>
+            <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0" stop-color="#2ea7e0"/>
+              <stop offset="1" stop-color="#0096d6"/>
+            </linearGradient>
+          </defs>
+          <circle cx="120" cy="120" r="120" fill="url(#g)" />
+          <path d="M46 124c0 0 24-9 36-14 26-10 56-21 56-21s6-2 10 2c3 3 0 9-3 12-3 3-34 28-34 28s-7 6-3 10c3 4 12 3 12 3s31-3 46-16c12-10 31-26 31-26s9-7 6-12c-2-4-9-2-12 0-3 3-38 30-38 30s-22 12-47 18c-25 6-62 9-62 9s-10 1-10-6c0-6 10-20 10-20z" fill="#fff" opacity="0.95"/>
+        </svg>
+        <span class="label">t.me/VanDucModzNet</span>
+      </a>
+    </div>
+
+    <div class="right">
+      <a class="fb" href="#" target="_blank" rel="noopener noreferrer" aria-label="Facebook Văn Đức (trâu)">
+        <!-- Facebook "f" SVG -->
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+          <path fill="#fff" d="M22 12a10 10 0 1 0-11.5 9.9v-7H8.9V12h1.6V9.8c0-1.6 1-2.5 2.4-2.5.7 0 1.4.1 1.4.1v1.6h-.8c-.8 0-1 0-1 1v1.8h1.7l-.3 2.9h-1.4v7A10 10 0 0 0 22 12z"/>
+        </svg>
+        <span class="name">Facebook: Văn Đức (trâu)</span>
+      </a>
+    </div>
+  </header>
+
+</body>
+</html>
