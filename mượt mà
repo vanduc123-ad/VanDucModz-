@@ -1,0 +1,58 @@
+-- LocalScript trong ToggleButton (StarterGui > ScreenGui > ToggleButton)
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local button = script.Parent
+local mover = workspace:WaitForChild("Mover") -- Part để di chuyển
+local on = false
+local tweenInfo = TweenInfo.new(
+    0.5,                -- thời gian tween (nên vừa phải để mượt)
+    Enum.EasingStyle.Quad,
+    Enum.EasingDirection.Out
+)
+
+-- 2 vị trí mẫu để di chuyển giữa On/Off
+local posOff = mover.Position
+local posOn = posOff + Vector3.new(0, 10, 0) -- ví dụ: lên cao 10 studs
+
+-- Hàm chuyển mượt bằng TweenService (ổn định, không spam)
+local function smoothMove(targetPos)
+    -- tạo tween cho CFrame (an toàn và mượt)
+    local goal = {Position = targetPos}
+    local tween = TweenService:Create(mover, tweenInfo, goal)
+    tween:Play()
+    return tween
+end
+
+-- Debounce để tránh spam
+local debounce = false
+
+button.MouseButton1Click:Connect(function()
+    if debounce then return end
+    debounce = true
+    on = not on
+    button.Text = on and "Tắt" or "Bật"
+
+    if on then
+        smoothMove(posOn)
+    else
+        smoothMove(posOff)
+    end
+
+    -- đợi đủ thời gian tween trước khi cho phép nhấn lại
+    wait(tweenInfo.Time + 0.05)
+    debounce = false
+end)
+
+-- Tùy chọn: mượt hoá theo RenderStepped (ví dụ demo LERP cục bộ, không ảnh hưởng server)
+-- (không cần thiết nếu dùng TweenService; bỏ qua phần này nếu muốn)
+--[[
+local targetPos = posOff
+RunService.RenderStepped:Connect(function(dt)
+    local current = mover.Position
+    local newPos = current:Lerp(targetPos, math.clamp(6 * dt, 0, 1)) -- 6 là tốc độ 'mượt'
+    mover.Position = newPos
+end)
+
+-- khi toggle, set targetPos = posOn hoặc posOff
+]]
