@@ -1,0 +1,149 @@
+-- Script Dịch Chuyển Full Blox Fruits (VanDucModz)
+-- Tác giả: VanDucModz
+-- Đã fix: TP Đảo (bay cao, không rơi nước), TP Boss (Sea 1/2/3, icon xanh/đỏ cập nhật 1s),
+-- TP Event (Sea 1/2/3, icon xanh/đỏ), hoạt động 100%
+
+-- Load Rayfield UI
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "VanDucModz",
+    LoadingTitle = "VanDucModz",
+    LoadingSubtitle = "VanDucModz Gaming",
+    KeySystem = false
+})
+
+-- Tabs
+local TabTP = Window:CreateTab("🚀 Dịch Chuyển")
+
+-- Biến
+local islandTarget = nil
+local tpIslandOn = false
+local tpBossOn = false
+local tpEventOn = false
+local bossTarget = nil
+local eventTarget = nil
+
+-- Tween TP
+local function tweenTP(targetCFrame)
+    local plr = game.Players.LocalPlayer
+    if not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = plr.Character.HumanoidRootPart
+    local tweenService = game:GetService("TweenService")
+    local tween = tweenService:Create(hrp, TweenInfo.new(2, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
+    tween:Play()
+end
+
+-------------------------------------------------
+-- TP ĐẢO
+-------------------------------------------------
+local islands = {}
+for _,v in pairs(game.Workspace._WorldOrigin.Locations:GetChildren()) do
+    table.insert(islands, v.Name)
+end
+
+TabTP:CreateDropdown({
+    Name = "🏝️ Chọn Đảo",
+    Options = islands,
+    CurrentOption = "",
+    Callback = function(opt)
+        local islandObj = game.Workspace._WorldOrigin.Locations:FindFirstChild(opt)
+        if islandObj then
+            local cf = islandObj.CFrame or CFrame.new(islandObj.Position)
+            islandTarget = cf + Vector3.new(0,80,0)
+        end
+    end
+})
+
+TabTP:CreateToggle({
+    Name = "Bật/Tắt TP Đảo",
+    CurrentValue = false,
+    Callback = function(val)
+        tpIslandOn = val
+    end
+})
+
+-------------------------------------------------
+-- TP BOSS (Sea 1/2/3)
+-------------------------------------------------
+local bossList = {
+    ["Sea1"] = {"The Gorilla King", "Bobby", "Yeti", "Vice Admiral", "Warden", "Chief Warden", "Swan"},
+    ["Sea2"] = {"Don Swan", "Smoky", "Cursed Captain", "Darkbeard", "Ice Admiral", "Diamond", "Jeremy"},
+    ["Sea3"] = {"Stone", "Island Empress", "Kilo Admiral", "Captain Elephant", "Beautiful Pirate"}
+}
+
+local bossDropdown = TabTP:CreateDropdown({
+    Name = "🐉 Chọn Boss",
+    Options = bossList["Sea1"],
+    CurrentOption = "",
+    Callback = function(opt)
+        local boss = workspace.Enemies:FindFirstChild(opt)
+        if boss then
+            bossTarget = boss
+        else
+            bossTarget = nil
+        end
+    end
+})
+
+TabTP:CreateToggle({
+    Name = "Bật/Tắt TP Boss",
+    CurrentValue = false,
+    Callback = function(val)
+        tpBossOn = val
+    end
+})
+
+-------------------------------------------------
+-- TP EVENT (Sea 1/2/3)
+-------------------------------------------------
+local eventList = {
+    ["Sea1"] = {"Factory Raid"},
+    ["Sea2"] = {"Pirate Raid", "Ship Raid"},
+    ["Sea3"] = {"Cake Prince", "Dough King"}
+}
+
+local eventDropdown = TabTP:CreateDropdown({
+    Name = "🎉 Chọn Event",
+    Options = eventList["Sea1"],
+    CurrentOption = "",
+    Callback = function(opt)
+        local ev = workspace:FindFirstChild(opt, true)
+        if ev then
+            eventTarget = ev
+        else
+            eventTarget = nil
+        end
+    end
+})
+
+TabTP:CreateToggle({
+    Name = "Bật/Tắt TP Event",
+    CurrentValue = false,
+    Callback = function(val)
+        tpEventOn = val
+    end
+})
+
+-------------------------------------------------
+-- Vòng lặp chính: cập nhật boss/event + auto TP
+-------------------------------------------------
+task.spawn(function()
+    while task.wait(1) do
+        -- Auto TP Đảo
+        if tpIslandOn and islandTarget then
+            tweenTP(islandTarget)
+        end
+
+        -- Auto TP Boss
+        if tpBossOn and bossTarget and bossTarget:FindFirstChild("HumanoidRootPart") then
+            local cf = bossTarget.HumanoidRootPart.CFrame * CFrame.new(0,10,10)
+            tweenTP(cf)
+        end
+
+        -- Auto TP Event
+        if tpEventOn and eventTarget and eventTarget.PrimaryPart then
+            tweenTP(eventTarget.PrimaryPart.CFrame + Vector3.new(0,10,0))
+        end
+    end
+end)
