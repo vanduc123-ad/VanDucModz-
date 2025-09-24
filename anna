@@ -1,0 +1,880 @@
+-- VanDucModz Rayfield Teleport Script (Full)
+-- Dán thẳng vào executor (KRNL/Synapse/Fluxus...) để chạy
+-- Mục tiêu: Tab 1 Server Info, Tab 2 Map, Tab 3 Dịch Chuyển (TP đảo & Boss), Tab 4 Sự kiện, Tab 5 Cài đặt (font + màu), Tab 6 Telegram
+-- Tác giả: VanDucModz (template, chỉnh tiếp theo ý bạn)
+
+---- CONFIG TÙY CHỈNH ----
+local WINDOW_TITLE = "VanDucModz"
+local TELEGRAM_LINK = "t.me/ModzGaming"
+local DEFAULT_FLY_SPEED = 180        -- studs / giây
+local DEFAULT_FLY_HEIGHT = 40        -- độ cao bay so với mặt đất/mục tiêu
+local ARRIVE_DISTANCE_ISLAND = 3     -- khoảng cách khi đứng trên đảo
+local ARRIVE_DISTANCE_BOSS = 10      -- khoảng cách đứng cách boss (yêu cầu)
+local AUTO_UPDATE_INTERVAL = 0.6     --số giây refresh thông tin UI (player list / map)
+local RAYFIELD_URLS = {
+    "https://raw.githubusercontent.com/shlexware/Rayfield/master/source", -- phổ biến
+    "https://raw.githubusercontent.com/ShadowRayfield/Rayfield/master/source" -- fallback (nếu có)
+}
+---- END CONFIG ----
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+local Character, Humanoid, HRP
+
+local function getCharacter()
+    Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    HRP = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("Torso") or Character:FindFirstChild("LowerTorso")
+    return Character, Humanoid, HRP
+end
+getCharacter()
+LocalPlayer.CharacterAdded:Connect(getCharacter)
+
+-- Utility safe pcall wrapper
+local function safe(fn)
+    local ok, res = pcall(fn)
+    if ok then return res end
+    return nil
+end
+
+-- Try load Rayfield
+local RayfieldLib = nil
+for _, url in ipairs(RAYFIELD_URLS) do
+    local ok, lib = pcall(function()
+        return loadstring(game:HttpGet(url, true))()
+    end)
+    if ok and lib then
+        RayfieldLib = lib
+        break
+    end
+end
+
+-- Fallback UI builder (a compact version used if Rayfield is not available)
+local function BuildFallbackUI(api)
+    -- api is table of callbacks to update UI elements
+    -- Use simple ScreenGui with tabs like earlier sample but limited.
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    if playerGui:FindFirstChild("VanDucRayfield_Fallback") then playerGui:FindFirstChild("VanDucRayfield_Fallback"):Destroy() end
+    local screenGui = Instance.new("ScreenGui", playerGui)
+    screenGui.Name = "VanDucRayfield_Fallback"
+    screenGui.ResetOnSpawn = false
+
+    -- main window
+    local main = Instance.new("Frame", screenGui)
+    main.Size = UDim2.new(0, 640, 0, 420)
+    main.Position = UDim2.new(0.5, -320, 0.5, -210)
+    main.AnchorPoint = Vector2.new(0.5, 0.5)
+    main.BackgroundColor3 = Color3.fromRGB(22,22,22)
+    main.BorderSizePixel = 0
+    main.Active = true
+    main.Draggable = true
+
+    local header = Instance.new("TextLabel", main)
+    header.Size = UDim2.new(1, 0, 0, 48)
+    header.BackgroundTransparency = 1
+    header.Text = WINDOW_TITLE .. " — Rayfield (Fallback)"
+    header.Font = Enum.Font.SourceSansBold
+    header.TextSize = 20
+    header.TextColor3 = Color3.fromRGB(240,240,240)
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.Position = UDim2.new(0,12,0,8)
+
+    -- Left tabs
+    local tabFrame = Instance.new("Frame", main)
+    tabFrame.Size = UDim2.new(0, 160, 1, -56)
+    tabFrame.Position = UDim2.new(0, 8, 0, 48)
+    tabFrame.BackgroundTransparency = 1
+
+    local content = Instance.new("Frame", main)
+    content.Size = UDim2.new(1, -176, 1, -56)
+    content.Position = UDim2.new(0, 168, 0, 48)
+    content.BackgroundColor3 = Color3.fromRGB(16,16,16)
+    content.BorderSizePixel = 0
+
+    -- create simple tabs buttons
+    local tabs = {"Thông Tin Server","Map","Dịch Chuyển","Sự kiện Hot","Cài Đặt","Telegram"}
+    local pages = {}
+    for i,name in ipairs(tabs) do
+        local btn = Instance.new("TextButton", tabFrame)
+        btn.Size = UDim2.new(1, -8, 0, 34)
+        btn.Position = UDim2.new(0,4,0, (i-1)*38)
+        btn.Text = name
+        btn.Font = Enum.Font.SourceSans
+        btn.TextSize = 14
+        btn.BackgroundColor3 = Color3.fromRGB(36,36,36)
+        btn.TextColor3 = Color3.fromRGB(230,230,230)
+        btn.BorderSizePixel = 0
+        local page = Instance.new("Frame", content)
+        page.Size = UDim2.new(1, 0, 1, 0)
+        page.BackgroundTransparency = 1
+        page.Visible = (i==1)
+        pages[name] = page
+
+        btn.MouseButton1Click:Connect(function()
+            for _,p in pairs(pages) do p.Visible = false end
+            page.Visible = true
+        end)
+    end
+
+    -- Page: Thông Tin Server
+    local page1 = pages["Thông Tin Server"]
+    local lblPlayers = Instance.new("TextLabel", page1)
+    lblPlayers.Size = UDim2.new(1, -20, 0, 20)
+    lblPlayers.Position = UDim2.new(0,10,0,8)
+    lblPlayers.BackgroundTransparency = 1
+    lblPlayers.Text = "Players:"
+    lblPlayers.TextXAlignment = Enum.TextXAlignment.Left
+    lblPlayers.TextColor3 = Color3.fromRGB(230,230,230)
+    lblPlayers.Font = Enum.Font.SourceSansSemibold
+    lblPlayers.TextSize = 14
+
+    local playersBox = Instance.new("TextBox", page1)
+    playersBox.Size = UDim2.new(1, -20, 1, -140)
+    playersBox.Position = UDim2.new(0,10,0,36)
+    playersBox.ClearTextOnFocus = false
+    playersBox.TextWrapped = true
+    playersBox.TextYAlignment = Enum.TextYAlignment.Top
+    playersBox.Text = ""
+    playersBox.MultiLine = true
+    playersBox.TextEditable = false
+    playersBox.BackgroundColor3 = Color3.fromRGB(26,26,26)
+    playersBox.TextColor3 = Color3.fromRGB(220,220,220)
+
+    local fpsLbl = Instance.new("TextLabel", page1)
+    fpsLbl.Size = UDim2.new(0.5, -16, 0, 20)
+    fpsLbl.Position = UDim2.new(0,10,1,-36)
+    fpsLbl.BackgroundTransparency = 1
+    fpsLbl.Text = "FPS: 0"
+    fpsLbl.Font = Enum.Font.SourceSans
+    fpsLbl.TextColor3 = Color3.fromRGB(220,220,220)
+    fpsLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local pingLbl = Instance.new("TextLabel", page1)
+    pingLbl.Size = UDim2.new(0.5, -16, 0, 20)
+    pingLbl.Position = UDim2.new(0.5,8,1,-36)
+    pingLbl.BackgroundTransparency = 1
+    pingLbl.Text = "Ping: ? ms"
+    pingLbl.Font = Enum.Font.SourceSans
+    pingLbl.TextColor3 = Color3.fromRGB(220,220,220)
+    pingLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- Page Map
+    local page2 = pages["Map"]
+    local posLbl = Instance.new("TextLabel", page2)
+    posLbl.Size = UDim2.new(1, -20, 0, 20)
+    posLbl.Position = UDim2.new(0,10,0,8)
+    posLbl.BackgroundTransparency = 1
+    posLbl.Text = "Vị trí hiện tại: (loading...)"
+    posLbl.TextColor3 = Color3.fromRGB(220,220,220)
+    posLbl.Font = Enum.Font.SourceSans
+    posLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local nearestLbl = Instance.new("TextLabel", page2)
+    nearestLbl.Size = UDim2.new(1, -20, 0, 20)
+    nearestLbl.Position = UDim2.new(0,10,0,36)
+    nearestLbl.BackgroundTransparency = 1
+    nearestLbl.Text = "Gần nhất: (chưa có)"
+    nearestLbl.TextColor3 = Color3.fromRGB(220,220,220)
+    nearestLbl.Font = Enum.Font.SourceSans
+    nearestLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local islandsBox = Instance.new("TextBox", page2)
+    islandsBox.Size = UDim2.new(1, -20, 1, -96)
+    islandsBox.Position = UDim2.new(0,10,0,64)
+    islandsBox.ClearTextOnFocus = false
+    islandsBox.TextWrapped = true
+    islandsBox.MultiLine = true
+    islandsBox.TextEditable = false
+    islandsBox.Text = "Danh sách đảo:\n"
+    islandsBox.BackgroundColor3 = Color3.fromRGB(26,26,26)
+    islandsBox.TextColor3 = Color3.fromRGB(220,220,220)
+
+    -- Page Dịch Chuyển
+    local page3 = pages["Dịch Chuyển"]
+    local ddIslands = Instance.new("TextBox", page3) ddIslands.Size = UDim2.new(1, -20, 0, 28) ddIslands.Position = UDim2.new(0,10,0,8)
+    ddIslands.PlaceholderText = "Chọn đảo (chọn bằng cách gõ tên chính xác hoặc click danh sách bên)"
+    local tpIslandBtn = Instance.new("TextButton", page3) tpIslandBtn.Size = UDim2.new(0,160,0,30) tpIslandBtn.Position = UDim2.new(0,10,0,44) tpIslandBtn.Text = "TP Đến đảo (1 lần)"
+    local autoIslandToggle = Instance.new("TextButton", page3) autoIslandToggle.Size = UDim2.new(0,140,0,28) autoIslandToggle.Position = UDim2.new(0,180,0,44) autoIslandToggle.Text = "Auto TP: OFF"
+
+    local ddBoss = Instance.new("TextBox", page3) ddBoss.Size = UDim2.new(1, -20, 0, 28) ddBoss.Position = UDim2.new(0,10,0,88)
+    ddBoss.PlaceholderText = "Chọn boss (gõ tên hoặc chọn danh sách)"
+    local tpBossBtn = Instance.new("TextButton", page3) tpBossBtn.Size = UDim2.new(0,160,0,30) tpBossBtn.Position = UDim2.new(0,10,0,124) tpBossBtn.Text = "TP tới boss (cách 10m)"
+
+    local speedLbl = Instance.new("TextLabel", page3) speedLbl.Size = UDim2.new(0,220,0,20) speedLbl.Position = UDim2.new(0,10,1,-56) speedLbl.BackgroundTransparency = 1 speedLbl.Text = "Tốc độ bay: "..tostring(DEFAULT_FLY_SPEED)
+    local heightLbl = Instance.new("TextLabel", page3) heightLbl.Size = UDim2.new(0,220,0,20) heightLbl.Position = UDim2.new(0,240,1,-56) heightLbl.BackgroundTransparency = 1 heightLbl.Text = "Độ cao bay: "..tostring(DEFAULT_FLY_HEIGHT)
+
+    -- Page Sự kiện Hot
+    local page4 = pages["Sự kiện Hot"]
+    local eventsBox = Instance.new("TextBox", page4)
+    eventsBox.Size = UDim2.new(1, -20, 1, -28)
+    eventsBox.Position = UDim2.new(0,10,0,8)
+    eventsBox.ClearTextOnFocus = false
+    eventsBox.TextWrapped = true
+    eventsBox.MultiLine = true
+    eventsBox.TextEditable = false
+    eventsBox.Text = "Danh sách sự kiện (Auto scan trong game):\n"
+    eventsBox.BackgroundColor3 = Color3.fromRGB(26,26,26)
+    eventsBox.TextColor3 = Color3.fromRGB(220,220,220)
+
+    -- Page Cài đặt
+    local page5 = pages["Cài Đặt"]
+    local fontBox = Instance.new("TextBox", page5) fontBox.Size = UDim2.new(1, -20, 0, 28) fontBox.Position = UDim2.new(0,10,0,8) fontBox.PlaceholderText = "Font UI (Roblox enum name, ex: SourceSans, SourceSansBold, Arcade)"
+    local colorR = Instance.new("TextBox", page5) colorR.Size = UDim2.new(0,60,0,28) colorR.Position = UDim2.new(0,10,0,52) colorR.PlaceholderText = "R 0-255"
+    local colorG = Instance.new("TextBox", page5) colorG.Size = UDim2.new(0,60,0,28) colorG.Position = UDim2.new(0,80,0,52) colorG.PlaceholderText = "G 0-255"
+    local colorB = Instance.new("TextBox", page5) colorB.Size = UDim2.new(0,60,0,28) colorB.Position = UDim2.new(0,150,0,52) colorB.PlaceholderText = "B 0-255"
+    local applyColorBtn = Instance.new("TextButton", page5) applyColorBtn.Size = UDim2.new(0,120,0,28) applyColorBtn.Position = UDim2.new(0,220,0,52) applyColorBtn.Text = "Áp dụng màu"
+
+    -- Page Telegram
+    local page6 = pages["Telegram"]
+    local tgBtn = Instance.new("TextButton", page6) tgBtn.Size = UDim2.new(0,200,0,36) tgBtn.Position = UDim2.new(0,10,0,8) tgBtn.Text = "Sao chép link Telegram"
+    local tgLabel = Instance.new("TextLabel", page6) tgLabel.Size = UDim2.new(1,-20,0,20) tgLabel.Position = UDim2.new(0,10,0,56) tgLabel.Text = TELEGRAM_LINK tgLabel.BackgroundTransparency=1 tgLabel.TextColor3=Color3.new(1,1,1)
+
+    -- Expose API to outer code via 'api' callbacks
+    api._ui = {
+        playersBox = playersBox,
+        fpsLbl = fpsLbl,
+        pingLbl = pingLbl,
+        islandsBox = islandsBox,
+        posLbl = posLbl,
+        nearestLbl = nearestLbl,
+        ddIslands = ddIslands,
+        tpIslandBtn = tpIslandBtn,
+        autoIslandToggle = autoIslandToggle,
+        ddBoss = ddBoss,
+        tpBossBtn = tpBossBtn,
+        speedLbl = speedLbl,
+        heightLbl = heightLbl,
+        eventsBox = eventsBox,
+        fontBox = fontBox,
+        colorR = colorR, colorG = colorG, colorB = colorB,
+        applyColorBtn = applyColorBtn,
+        tgBtn = tgBtn,
+        tgLabel = tgLabel
+    }
+
+    return screenGui
+end
+
+-- Teleport & flight utilities (works client-side: move HRP CFrame step-by-step)
+local Teleport = {}
+Teleport._currentFlying = false
+Teleport.Settings = {
+    FlySpeed = DEFAULT_FLY_SPEED,
+    FlyHeight = DEFAULT_FLY_HEIGHT
+}
+
+-- Helper: compute part/model center position
+local function modelCenter(model)
+    if not model then return nil end
+    if model.PrimaryPart then return model.PrimaryPart.Position end
+    for _,v in pairs(model:GetDescendants()) do
+        if v:IsA("BasePart") then return v.Position end
+    end
+    return nil
+end
+
+-- Smooth straight-line flight to targetPos. finalDistance = desired stopping distance
+function Teleport:FlyTo(targetPos, finalDistance, opts)
+    -- opts: {onArrive = fn}
+    if not HRP or not Humanoid then getCharacter() end
+    if not HRP then return false, "No HRP" end
+    finalDistance = finalDistance or 3
+    local spd = Teleport.Settings.FlySpeed or DEFAULT_FLY_SPEED
+    local flyHeight = Teleport.Settings.FlyHeight or DEFAULT_FLY_HEIGHT
+
+    -- compute a high Y so flight flies above obstacles & water
+    local startPos = HRP.Position
+    local topY = math.max(startPos.Y, targetPos.Y) + flyHeight
+
+    local currentPos = startPos
+    Teleport._currentFlying = true
+    local heartbeat = RunService.Heartbeat
+
+    -- Set humanoid into PlatformStand to reduce animation interference
+    local prevPlatformStand = false
+    if Humanoid then
+        prevPlatformStand = Humanoid.PlatformStand
+        pcall(function() Humanoid.PlatformStand = true end)
+    end
+
+    -- Loop moving in straight line to target cusp
+    while Teleport._currentFlying and (HRP.Position - targetPos).Magnitude > finalDistance do
+        local dt = heartbeat:Wait()
+        -- compute desired point on straight line: we want to go from current to target but keep Y based on a smooth path:
+        local direction = (targetPos - HRP.Position)
+        if direction.Magnitude <= 0.01 then break end
+        local dirUnit = direction.Unit
+        -- Desired next position: move along horizontal+vertical proportionally but ensure we maintain topY until near island
+        local desired = HRP.Position + dirUnit * math.clamp(spd * dt, 0, direction.Magnitude)
+        -- keep flying Y towards topY until we are near XZ of target (so the path is straight-ish)
+        -- compute fraction to target
+        local frac = math.clamp((HRP.Position - startPos).Magnitude / math.max((targetPos - startPos).Magnitude, 0.001), 0, 1)
+        -- linear interpolate Y between topY and targetPos.Y using fraction (so we descend as we approach)
+        local desiredY = topY * (1 - frac) + targetPos.Y * frac
+        desired = Vector3.new(desired.X, desiredY, desired.Z)
+        -- set CFrame
+        local lookAt = targetPos
+        pcall(function()
+            HRP.CFrame = CFrame.new(desired, lookAt)
+        end)
+    end
+
+    Teleport._currentFlying = false
+    if Humanoid then
+        pcall(function() Humanoid.PlatformStand = prevPlatformStand end)
+    end
+    if opts and typeof(opts.onArrive) == "function" then
+        pcall(opts.onArrive)
+    end
+    return true
+end
+
+function Teleport:Stop()
+    Teleport._currentFlying = false
+end
+
+-- Scanners: Islands, Bosses, Events
+local function scanIslands()
+    local islands = {}
+    local seen = {}
+    -- heuristic: models or parts with name containing island, đảo, isle, map, zone
+    local patterns = {"island","đảo","dao","isle","zone","map","archipelago","reef"}
+    for _,v in pairs(workspace:GetDescendants()) do
+        if (v:IsA("Model") or v:IsA("Folder") or v:IsA("BasePart")) and not seen[v] then
+            local name = tostring(v.Name):lower()
+            for _,pat in pairs(patterns) do
+                if name:find(pat) then
+                    local pos = modelCenter(v) or (v:IsA("BasePart") and v.Position)
+                    if pos then
+                        table.insert(islands, {Name = v.Name, Pos = pos, Instance = v})
+                        seen[v] = true
+                    end
+                    break
+                end
+            end
+        end
+    end
+    -- also try to find by top-level containers (Map, Islands folder)
+    local containerPaths = {"Islands","Maps","Map","Island","Đảo","Isles"}
+    for _,p in pairs(containerPaths) do
+        local container = workspace:FindFirstChild(p) or workspace:FindFirstChild(p:lower())
+        if container then
+            for _,v in pairs(container:GetChildren()) do
+                if not seen[v] then
+                    local pos = modelCenter(v)
+                    if pos then table.insert(islands, {Name = v.Name, Pos = pos, Instance = v}) seen[v]=true end
+                end
+            end
+        end
+    end
+    -- unique by name
+    local uniq = {}
+    local out = {}
+    for _,i in pairs(islands) do
+        if not uniq[i.Name] then
+            table.insert(out, i)
+            uniq[i.Name] = true
+        end
+    end
+    return out
+end
+
+local function scanBosses()
+    local bosses = {}
+    local seen = {}
+    for _,v in pairs(workspace:GetDescendants()) do
+        if v:IsA("Model") and not seen[v] then
+            local name = tostring(v.Name):lower()
+            if name:find("boss") or name:find("bosses") or name:find("raid") or name:find("guardian") then
+                local pos = modelCenter(v)
+                if pos then
+                    table.insert(bosses, {Name = v.Name, Pos = pos, Instance = v})
+                    seen[v] = true
+                end
+            end
+        end
+    end
+    -- Try to detect large NPCs with Humanoid and high health
+    for _,m in pairs(workspace:GetChildren()) do
+        if m:IsA("Model") and not seen[m] then
+            local hum = m:FindFirstChildOfClass("Humanoid")
+            if hum and hum.HealthDisplayDistance then
+                local pos = modelCenter(m)
+                if pos then
+                    table.insert(bosses, {Name = m.Name, Pos = pos, Instance = m})
+                    seen[m]=true
+                end
+            end
+        end
+    end
+    return bosses
+end
+
+local function scanEvents()
+    local found = {}
+    -- scan ReplicatedStorage, Workspace, GUI for potential event strings & objects
+    local candidates = {}
+    for _,loc in pairs({ReplicatedStorage, workspace, Players.LocalPlayer:FindFirstChildOfClass("PlayerGui") or {}}) do
+        if loc and type(loc.GetDescendants)=="function" then
+            for _,d in pairs(loc:GetDescendants()) do
+                if d:IsA("StringValue") or d:IsA("BoolValue") or d:IsA("ObjectValue") then
+                    table.insert(candidates, tostring(d.Name) .. ": " .. tostring(d.Value))
+                elseif d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                    local txt = tostring(d.Text or "")
+                    if txt ~= "" and #txt < 500 then
+                        table.insert(candidates, txt)
+                    end
+                end
+            end
+        end
+    end
+    -- minimal filtering for event-like content
+    local events = {}
+    local keywords = {"event","sự kiện","boss","spawn","xuất hiện","starts in","kết thúc","raid","limited","rotate","tournament"}
+    for _,c in pairs(candidates) do
+        local s = c:lower()
+        for _,kw in pairs(keywords) do
+            if s:find(kw) then
+                table.insert(events, c)
+                break
+            end
+        end
+    end
+    -- translate common english to vietnamese (simple replace)
+    local function translate(text)
+        local rep = {
+            ["event"] = "Sự kiện",
+            ["starts in"] = "Bắt đầu trong",
+            ["ends in"] = "Kết thúc trong",
+            ["spawn"] = "Xuất hiện",
+            ["boss"] = "Boss",
+            ["limited"] = "Giới hạn",
+            ["raid"] = "Đột kích",
+            ["tournament"] = "Giải đấu",
+            ["island"] = "Đảo",
+        }
+        local lower = tostring(text)
+        for a,b in pairs(rep) do
+            lower = lower:gsub("(?i)"..a, b)
+        end
+        return lower
+    end
+
+    local out = {}
+    for _,e in pairs(events) do
+        table.insert(out, translate(e))
+    end
+    if #out == 0 then table.insert(out, "Không tìm thấy sự kiện tự động trong game.") end
+    return out
+end
+
+-- FPS meter
+local fpsValue = 0
+do
+    local last = tick()
+    local frames = 0
+    RunService.RenderStepped:Connect(function()
+        frames = frames + 1
+        if tick() - last >= 1 then
+            fpsValue = frames
+            frames = 0
+            last = tick()
+        end
+    end)
+end
+
+-- Ping attempt (best-effort)
+local function getPing()
+    -- best-effort: try Stats Network Data Ping
+    local ok, ping = pcall(function()
+        local Stats = game:GetService("Stats")
+        local network = Stats and Stats:FindFirstChild("Network")
+        if network and network:FindFirstChild("Data Ping") then
+            local v = network["Data Ping"]:GetValue()
+            return math.floor(v)
+        end
+        -- fallback: try reading 'Data Ping' path used in some clients
+        if Stats and Stats.Network and Stats.Network.ServerStatsItem and Stats.Network.ServerStatsItem["Data Ping"] then
+            return math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+        end
+        return nil
+    end)
+    if ok and ping then return ping end
+    return "N/A"
+end
+
+-- UI creation: prefer Rayfield if available
+local UI = {}
+local state = {
+    Islands = {},
+    Bosses = {},
+    SelectedIsland = nil,
+    SelectedBoss = nil,
+    AutoIsland = false,
+    AutoBoss = false,
+    UIThemeColor = Color3.fromRGB(100,100,255),
+    UIFont = Enum.Font.SourceSans
+}
+
+if RayfieldLib then
+    -- Rayfield path
+    local Rayfield = RayfieldLib
+    local Window = Rayfield:CreateWindow({
+        Name = WINDOW_TITLE,
+        LoadingTitle = WINDOW_TITLE,
+        LoadingSubtitle = "VanDucModz Rayfield",
+        ConfigurationSaving = {
+            Enabled = true,
+            FolderName = nil,
+            FileName = WINDOW_TITLE .. "_config"
+        },
+        Discord = {
+            Enabled = false
+        }
+    })
+    -- Tab 1
+    local tab1 = Window:CreateTab("Thông Tin Server")
+    local secServer = tab1:CreateSection("Thông tin")
+    local playersLabel = secServer:CreateLabel("Players: loading...")
+    local fpsLabel = secServer:CreateLabel("FPS: 0")
+    local pingLabel = secServer:CreateLabel("Ping: N/A")
+
+    -- big players list (paragraph)
+    local playersParagraph = secServer:CreateParagraph({Title = "Danh sách người chơi", Content = "Đang tải..."})
+
+    -- Tab 2 Map
+    local tab2 = Window:CreateTab("Map")
+    local secMap = tab2:CreateSection("Vị trí & Danh sách đảo")
+    local posLabel = secMap:CreateLabel("Vị trí: ...")
+    local nearLabel = secMap:CreateLabel("Gần nhất: ...")
+    local islandsDropdown = secMap:CreateDropdown({
+        Name = "Danh sách đảo",
+        Options = {"(đang tải)"},
+        CurrentOption = "(đang tải)",
+        Multiple = false,
+        Flag = "IslandsDrop",
+        Callback = function(opt) state.SelectedIsland = opt end
+    })
+    local refreshIslandsBtn = secMap:CreateButton({Name = "Refresh danh sách đảo", Callback = function() state.Islands = scanIslands() end})
+
+    -- Tab 3 Teleport
+    local tab3 = Window:CreateTab("Dịch Chuyển")
+    local secTP = tab3:CreateSection("TP đảo")
+    local islandPicker = secTP:CreateDropdown({
+        Name = "TP Đảo (chọn đảo)",
+        Options = {"(đang tải)"},
+        CurrentOption = "(đang tải)",
+        Callback = function(opt) state.SelectedIsland = opt end
+    })
+    local tpIslandBtn = secTP:CreateButton({Name = "TP ĐẾN ĐẢO (1 lần)", Callback = function()
+        -- find island by name
+        local sel = state.SelectedIsland
+        if not sel then Rayfield:Notify({Title="Lỗi", Content="Chưa chọn đảo", Duration=3}) return end
+        for _,i in pairs(state.Islands) do
+            if i.Name == sel then
+                local targetPos = i.Pos + Vector3.new(0, 0, 0) -- i.Pos
+                -- adjust to stand on island
+                targetPos = Vector3.new(targetPos.X, targetPos.Y + ARRIVE_DISTANCE_ISLAND, targetPos.Z)
+                Teleport:FlyTo(targetPos, ARRIVE_DISTANCE_ISLAND, {onArrive = function() Rayfield:Notify({Title="TP", Content="Đã tới đảo: "..i.Name, Duration=3}) end})
+                return
+            end
+        end
+        Rayfield:Notify({Title="TP", Content="Không tìm thấy đảo: "..tostring(sel), Duration=3})
+    end})
+    local autoIslandToggle = secTP:CreateToggle({Name = "Auto TP Đảo (Giữ chọn đảo)", CurrentValue = false, Flag = "AutoIsland", Callback = function(v)
+        state.AutoIsland = v
+        if v then
+            spawn(function()
+                while state.AutoIsland do
+                    if state.SelectedIsland then
+                        for _,i in pairs(state.Islands) do
+                            if i.Name == state.SelectedIsland then
+                                local pos = i.Pos + Vector3.new(0,ARRIVE_DISTANCE_ISLAND,0)
+                                Teleport:FlyTo(pos, ARRIVE_DISTANCE_ISLAND)
+                                wait(1)
+                                -- small wait then loop
+                                break
+                            end
+                        end
+                    end
+                    wait(3)
+                end
+            end)
+        end
+    end})
+
+    local secBoss = tab3:CreateSection("TP Boss")
+    local bossPicker = secBoss:CreateDropdown({Name = "Chọn Boss", Options = {"(đang tải)"}, CurrentOption = "(đang tải)", Callback = function(opt) state.SelectedBoss = opt end})
+    local tpBossBtn = secBoss:CreateButton({Name = "TP đến Boss (cách 10m)", Callback = function()
+        local sel = state.SelectedBoss
+        if not sel then Rayfield:Notify({Title="Lỗi", Content="Chưa chọn boss", Duration=3}) return end
+        for _,b in pairs(state.Bosses) do
+            if b.Name == sel then
+                local bossPos = b.Pos
+                -- compute approach point 10 studs away in XZ plane from boss towards player
+                if HRP then
+                    local dir = (HRP.Position - bossPos); dir = Vector3.new(dir.X, 0, dir.Z)
+                    if dir.Magnitude < 0.1 then dir = Vector3.new(0,0,10) end
+                    local dirUnit = dir.Unit
+                    local target = bossPos + dirUnit * ARRIVE_DISTANCE_BOSS
+                    target = Vector3.new(target.X, bossPos.Y + 3, target.Z) -- stand slightly above
+                    Teleport:FlyTo(target, 3, {onArrive=function() Rayfield:Notify({Title="TP", Content="Đã tới gần boss: "..b.Name, Duration=3}) end})
+                    return
+                else
+                    Rayfield:Notify({Title="TP", Content="Không xác định vị trí người chơi", Duration=3})
+                    return
+                end
+            end
+        end
+        Rayfield:Notify({Title="TP", Content="Không tìm thấy boss: "..tostring(sel), Duration=3})
+    end})
+    local autoBossToggle = secBoss:CreateToggle({Name = "Auto TP Boss", CurrentValue = false, Flag = "AutoBoss", Callback = function(v)
+        state.AutoBoss = v
+        if v then
+            spawn(function()
+                while state.AutoBoss do
+                    if state.SelectedBoss then
+                        for _,b in pairs(state.Bosses) do
+                            if b.Name == state.SelectedBoss then
+                                local bossPos = b.Pos
+                                if HRP then
+                                    local dir = (HRP.Position - bossPos); dir = Vector3.new(dir.X,0,dir.Z)
+                                    if dir.Magnitude < 0.1 then dir = Vector3.new(0,0,10) end
+                                    local target = bossPos + dir.Unit * ARRIVE_DISTANCE_BOSS
+                                    target = Vector3.new(target.X, bossPos.Y + 3, target.Z)
+                                    Teleport:FlyTo(target, 3)
+                                    wait(3)
+                                end
+                                break
+                            end
+                        end
+                    end
+                    wait(5)
+                end
+            end)
+        end
+    end})
+
+    local secTPSettings = tab3:CreateSection("Cài đặt TP")
+    local speedSlider = secTPSettings:CreateSlider({Name = "Tốc độ bay", Range = {50, 400}, Increment = 10, Suffix = "stud/s", CurrentValue = DEFAULT_FLY_SPEED, Flag = "FlySpeed", Callback = function(v) Teleport.Settings.FlySpeed = v end})
+    local heightSlider = secTPSettings:CreateSlider({Name = "Độ cao bay", Range = {10, 150}, Increment = 1, Suffix = "stud", CurrentValue = DEFAULT_FLY_HEIGHT, Flag = "FlyHeight", Callback = function(v) Teleport.Settings.FlyHeight = v end})
+    tab3:CreateLabel("Lưu ý: tính năng bay cố gắng bay thẳng, cao so với nước; nhưng 1 số game có anti-teleport server-side.")
+
+    -- Tab 4 Events
+    local tab4 = Window:CreateTab("Sự kiện Hot")
+    local secEvents = tab4:CreateSection("Sự kiện")
+    local eventsParagraph = secEvents:CreateParagraph({Title = "Sự kiện (auto scan)", Content = "Đang tìm..."})
+
+    -- Tab 5 Settings (font + color)
+    local tab5 = Window:CreateTab("Cài Đặt")
+    local secSet = tab5:CreateSection("Giao diện")
+    local fontDropdown = secSet:CreateDropdown({Name = "Chọn font (Roblox enum)", Options = {"SourceSans","SourceSansBold","Gotham","GothamBold","Arcade","Legacy"}, CurrentOption = "SourceSans", Callback = function(f)
+        local okFont = Enum.Font[f] or Enum.Font.SourceSans
+        state.UIFont = okFont
+        -- Rayfield has limited API to change global font; attempt to set approach by notifying user
+        Rayfield:Notify({Title="Font", Content="Thay đổi font thành: "..tostring(f), Duration=2})
+    end})
+    local colorPicker = secSet:CreateColorPicker({Name = "Màu chủ đạo UI", Default = Color3.fromRGB(100,100,255), Callback = function(color) state.UIThemeColor = color end})
+    local applyTheme = secSet:CreateButton({Name = "Áp dụng màu", Callback = function() Rayfield:Notify({Title="Theme", Content="Màu UI đã được cập nhật", Duration=2}) end})
+
+    -- Tab 6 Telegram
+    local tab6 = Window:CreateTab("Telegram")
+    local secTG = tab6:CreateSection("Kết nối")
+    local tgButton = secTG:CreateButton({Name = "Sao chép link nhóm Telegram", Callback = function()
+        local ok = pcall(function() setclipboard(TELEGRAM_LINK) end)
+        if ok then Rayfield:Notify({Title="Telegram", Content="Đã copy: "..TELEGRAM_LINK, Duration=3}) else Rayfield:Notify({Title="Telegram", Content="Copy thất bại. Hãy copy thủ công: "..TELEGRAM_LINK, Duration=4}) end
+    end})
+    secTG:CreateLabel("Link: "..TELEGRAM_LINK)
+
+    -- Periodic updater: update Islands/Bosses/Players/Ping/FPS/Events
+    spawn(function()
+        while true do
+            -- players
+            local pnames = {}
+            for _,p in pairs(Players:GetPlayers()) do
+                table.insert(pnames, p.Name .. (p==LocalPlayer and " (Bạn)" or ""))
+            end
+            playersParagraph:Update({Title = "Danh sách người chơi", Content = table.concat(pnames, "\n")})
+
+            -- fps / ping
+            fpsLabel:Update("FPS: "..tostring(fpsValue))
+            local ping = getPing()
+            pingLabel:Update("Ping: "..tostring(ping).." ms")
+
+            -- islands & bosses
+            local islands = scanIslands()
+            state.Islands = islands
+            local islandNames = {}
+            for _,i in pairs(islands) do table.insert(islandNames, i.Name) end
+            if #islandNames == 0 then islandNames = {"(không tìm thấy đảo)"} end
+            islandPicker:Refresh(islandNames, true)
+            islandsDropdown:Refresh(islandNames, true)
+
+            local bosses = scanBosses()
+            state.Bosses = bosses
+            local bossNames = {}
+            for _,b in pairs(bosses) do table.insert(bossNames, b.Name) end
+            if #bossNames == 0 then bossNames = {"(không tìm thấy boss)"} end
+            bossPicker:Refresh(bossNames, true)
+
+            -- position & nearest island
+            if HRP then
+                posLabel:Update("Vị trí: "..string.format("%.1f, %.1f, %.1f", HRP.Position.X, HRP.Position.Y, HRP.Position.Z))
+                -- nearest island
+                local nearest, minD = nil, math.huge
+                for _,i in pairs(islands) do
+                    local d = (HRP.Position - i.Pos).Magnitude
+                    if d < minD then minD = d; nearest = i end
+                end
+                if nearest then
+                    nearLabel:Update("Gần nhất: "..nearest.Name.." ("..string.format("%.1fm", minD)..")")
+                else
+                    nearLabel:Update("Gần nhất: (không có)")
+                end
+            end
+
+            -- events
+            local events = scanEvents()
+            eventsParagraph:Update({Title = "Sự kiện", Content = table.concat(events, "\n\n")})
+
+            wait(AUTO_UPDATE_INTERVAL)
+        end
+    end)
+
+    -- End Rayfield UI
+    UI.Rayfield = {
+        Window = Window,
+        Rayfield = Rayfield
+    }
+else
+    -- Build fallback UI
+    local api = {}
+    local screenGui = BuildFallbackUI(api)
+    -- Update loops using the api._ui table
+    local u = api._ui
+    spawn(function()
+        while screenGui.Parent do
+            -- players
+            local lines = {}
+            for _,p in pairs(Players:GetPlayers()) do table.insert(lines, p.Name .. (p==LocalPlayer and " (Bạn)" or "")) end
+            u.playersBox.Text = table.concat(lines, "\n")
+            u.fpsLbl.Text = "FPS: "..tostring(fpsValue)
+            u.pingLbl.Text = "Ping: "..tostring(getPing())
+            -- islands/bosses
+            local islands = scanIslands()
+            state.Islands = islands
+            local ibuf = {"Danh sách đảo:"}
+            for _,i in pairs(islands) do table.insert(ibuf, "- "..i.Name.." @ "..string.format("%.1f, %.1f, %.1f", i.Pos.X, i.Pos.Y, i.Pos.Z)) end
+            u.islandsBox.Text = table.concat(ibuf, "\n")
+
+            -- position & nearest
+            if HRP then
+                u.posLbl.Text = "Vị trí hiện tại: "..string.format("%.1f, %.1f, %.1f", HRP.Position.X, HRP.Position.Y, HRP.Position.Z)
+                local nearest, minD = nil, math.huge
+                for _,i in pairs(islands) do
+                    local d = (HRP.Position - i.Pos).Magnitude
+                    if d < minD then minD = d; nearest = i end
+                end
+                if nearest then u.nearestLbl.Text = "Gần nhất: "..nearest.Name.." ("..string.format("%.1fm", minD)..")"
+                else u.nearestLbl.Text = "Gần nhất: (không có)" end
+            end
+
+            -- bosses
+            local bosses = scanBosses()
+            state.Bosses = bosses
+
+            -- events
+            local events = scanEvents()
+            u.eventsBox.Text = "Sự kiện:\n" .. table.concat(events, "\n\n")
+
+            -- UI buttons binding
+            u.tpIslandBtn.MouseButton1Click:Connect(function()
+                local sel = u.ddIslands.Text
+                if sel == "" then
+                    u.ddIslands.Text = "(vui lòng nhập tên đảo)"
+                    return
+                end
+                for _,i in pairs(state.Islands) do
+                    if i.Name == sel then
+                        local pos = i.Pos + Vector3.new(0, ARRIVE_DISTANCE_ISLAND,0)
+                        Teleport:FlyTo(pos, ARRIVE_DISTANCE_ISLAND)
+                        return
+                    end
+                end
+                u.ddIslands.Text = "(Không tìm thấy đảo: "..sel..")"
+            end)
+            local autoState = false
+            u.autoIslandToggle.MouseButton1Click:Connect(function()
+                autoState = not autoState
+                u.autoIslandToggle.Text = "Auto TP: "..(autoState and "ON" or "OFF")
+                state.AutoIsland = autoState
+                if autoState then
+                    spawn(function()
+                        while state.AutoIsland do
+                            if u.ddIslands.Text ~= "" then
+                                for _,i in pairs(state.Islands) do
+                                    if i.Name == u.ddIslands.Text then
+                                        Teleport:FlyTo(i.Pos + Vector3.new(0,ARRIVE_DISTANCE_ISLAND,0), ARRIVE_DISTANCE_ISLAND)
+                                        break
+                                    end
+                                end
+                            end
+                            wait(3)
+                        end
+                    end)
+                end
+            end)
+            u.tpBossBtn.MouseButton1Click:Connect(function()
+                local sel = u.ddBoss.Text
+                if sel == "" then u.ddBoss.Text = "(vui lòng nhập tên boss)"; return end
+                for _,b in pairs(state.Bosses) do
+                    if b.Name == sel then
+                        if HRP then
+                            local dir = HRP.Position - b.Pos; dir = Vector3.new(dir.X,0,dir.Z)
+                            if dir.Magnitude < 0.1 then dir = Vector3.new(0,0,10) end
+                            local target = b.Pos + dir.Unit * ARRIVE_DISTANCE_BOSS
+                            target = Vector3.new(target.X, b.Pos.Y + 3, target.Z)
+                            Teleport:FlyTo(target, 3)
+                            return
+                        end
+                    end
+                end
+                u.ddBoss.Text = "(Không tìm thấy boss: "..sel..")"
+            end)
+
+            u.applyColorBtn.MouseButton1Click:Connect(function()
+                local r = tonumber(u.colorR.Text) or 100
+                local g = tonumber(u.colorG.Text) or 100
+                local b = tonumber(u.colorB.Text) or 255
+                local c = Color3.fromRGB(math.clamp(r,0,255), math.clamp(g,0,255), math.clamp(b,0,255))
+                -- apply background color to content
+                pcall(function()
+                    screenGui.MainFrame.BackgroundColor3 = c
+                end)
+            end)
+
+            u.tgBtn.MouseButton1Click:Connect(function()
+                local ok = pcall(function() setclipboard(TELEGRAM_LINK) end)
+                if ok then u.tgLabel.Text = "Copied: "..TELEGRAM_LINK else u.tgLabel.Text = "Hãy copy thủ công: "..TELEGRAM_LINK end
+            end)
+
+            wait(AUTO_UPDATE_INTERVAL)
+        end
+    end)
+end
+
+-- Final notification
+if UI.Rayfield then
+    UI.Rayfield.Rayfield:Notify({Title = "VanDucModz", Content = "UI đã sẵn sàng. Vui lòng chọn tab để sử dụng.", Duration = 4})
+else
+    -- fallback toast: create a small message in StarterGui
+    print("VanDucModz UI (fallback) đã tải.")
+end
+
+-- END of script
