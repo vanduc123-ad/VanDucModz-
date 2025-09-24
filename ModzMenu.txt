@@ -1,0 +1,165 @@
+--[[
+ModzMenu - Full Read-Only Vietnamese UI (for KRNL)
+Save as ModzMenu.txt and paste into KRNL to run while in-game (e.g., Blox Fruits).
+Read-only: displays realtime info (no teleport, no farming, no CFrame changes).
+All UI & text in tiếng Việt. Tabs: Thông tin Server, Map, Cài Đặt, Sự kiện Hot, Boss.
+--]]
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- CONFIG
+local CONF = {
+    WIDTH_SCALE = 0.60,
+    HEIGHT_SCALE = 0.66,
+    ACCENT = Color3.fromRGB(45,155,255),
+    BACK = Color3.fromRGB(18,18,20),
+    CARD = Color3.fromRGB(34,34,36),
+    TEXT = Color3.fromRGB(235,235,240),
+    MUTED = Color3.fromRGB(150,150,160),
+    FONT = Enum.Font.GothamSemibold,
+    EVENT_REFRESH = 60,
+    BOSS_REFRESH = 6,
+    MAP_UPDATE = 0.7,
+    TWEEN = 0.18,
+    TAB_BUTTON_HEIGHT = 40,
+}
+
+local function new(class, props)
+    local obj = Instance.new(class)
+    if props then
+        for k,v in pairs(props) do
+            if k == "Parent" then obj.Parent = v else pcall(function() obj[k] = v end) end
+        end
+    end
+    return obj
+end
+
+-- Cleanup existing UI
+pcall(function()
+    local old = CoreGui:FindFirstChild("ModzMenu_UI")
+    if old then old:Destroy() end
+end)
+
+-- ScreenGui
+local screen = new("ScreenGui", {Name = "ModzMenu_UI", Parent = CoreGui, ResetOnSpawn = false})
+screen.IgnoreGuiInset = true
+screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Toggle button
+local toggle = new("TextButton", {
+    Parent = screen, Text = "☰", Size = UDim2.new(0,50,0,50), Position = UDim2.new(0.02,0,0.15,0),
+    BackgroundColor3 = CONF.ACCENT, TextColor3 = Color3.new(1,1,1), Font = CONF.FONT, TextSize = 26, AutoButtonColor = true
+})
+new("UICorner", {Parent = toggle, CornerRadius = UDim.new(1,0)})
+toggle.Active = true
+
+-- Main UI
+local main = new("Frame", {
+    Parent = screen, Name = "Main", Size = UDim2.new(CONF.WIDTH_SCALE,0,CONF.HEIGHT_SCALE,0),
+    Position = UDim2.new(0.5,0,0.5,0), AnchorPoint = Vector2.new(0.5,0.5),
+    BackgroundColor3 = CONF.BACK, Visible = false, ZIndex = 10
+})
+new("UICorner", {Parent = main, CornerRadius = UDim.new(0,12)})
+new("UIStroke", {Parent = main, Color = CONF.ACCENT, Thickness = 1})
+
+-- Sidebar
+local sidebar = new("Frame", {Parent = main, Size = UDim2.new(0.25,0,1,0), BackgroundColor3 = CONF.CARD})
+new("UICorner", {Parent = sidebar, CornerRadius = UDim.new(0,10)})
+local tabList = new("Frame", {Parent = sidebar, Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1})
+local layout = new("UIListLayout", {Parent = tabList, FillDirection = Enum.FillDirection.Vertical, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,4)})
+
+-- Content
+local content = new("Frame", {Parent = main, Position = UDim2.new(0.25,8,0,0), Size = UDim2.new(0.75,-8,1,0), BackgroundColor3 = Color3.fromRGB(36,36,38)})
+new("UICorner", {Parent = content, CornerRadius = UDim.new(0,10)})
+
+-- Tabs storage
+local Tabs = {}
+local function createTab(name)
+    local btn = new("TextButton", {Parent = tabList, Text = name, Size = UDim2.new(1,-8,0,CONF.TAB_BUTTON_HEIGHT),
+        BackgroundColor3 = CONF.BACK, TextColor3 = CONF.TEXT, Font = CONF.FONT, TextSize = 18, AutoButtonColor = true})
+    new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,8)})
+    local frame = new("Frame", {Parent = content, Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false})
+    Tabs[name] = frame
+    btn.MouseButton1Click:Connect(function()
+        for t,f in pairs(Tabs) do f.Visible = false end
+        frame.Visible = true
+    end)
+    return frame
+end
+
+-- Tab: Thông tin Server
+local infoFrame = createTab("Thông tin Server")
+local infoLabel = new("TextLabel", {Parent = infoFrame, Size = UDim2.new(1,-20,1,-20), Position = UDim2.new(0,10,0,10),
+    BackgroundTransparency = 1, Text = "Đang tải...", Font = CONF.FONT, TextSize = 18, TextColor3 = CONF.TEXT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
+RunService.RenderStepped:Connect(function()
+    local fps = math.floor(1/RunService.RenderStepped:Wait())
+    local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
+    local info = "👤 Người chơi: "..LocalPlayer.Name.."\n"
+    info = info.."🆔 UserId: "..LocalPlayer.UserId.."\n"
+    info = info.."🌐 FPS: "..tostring(fps).."\n"
+    info = info.."📶 Ping: "..ping.."\n"
+    infoLabel.Text = info
+end)
+
+-- Tab: Map
+local mapFrame = createTab("Map")
+local mapLabel = new("TextLabel", {Parent = mapFrame, Size = UDim2.new(1,-20,1,-20), Position = UDim2.new(0,10,0,10),
+    BackgroundTransparency = 1, Text = "Đang tải bản đồ...", Font = CONF.FONT, TextSize = 18, TextColor3 = CONF.TEXT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
+RunService.Heartbeat:Connect(function()
+    local pos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
+    if pos then
+        mapLabel.Text = "🗺 Vị trí hiện tại: "..tostring(pos)
+    end
+end)
+
+-- Tab: Cài Đặt
+local settingsFrame = createTab("Cài Đặt")
+new("TextLabel", {Parent = settingsFrame, Size = UDim2.new(1,-20,0,40), Position = UDim2.new(0,10,0,10), BackgroundTransparency = 1, Text = "⚙️ Tùy chỉnh sẽ thêm tại đây", Font = CONF.FONT, TextSize = 18, TextColor3 = CONF.TEXT, TextXAlignment = Enum.TextXAlignment.Left})
+
+-- Tab: Sự kiện Hot
+local eventFrame = createTab("Sự kiện Hot")
+local eventLabel = new("TextLabel", {Parent = eventFrame, Size = UDim2.new(1,-20,1,-20), Position = UDim2.new(0,10,0,10),
+    BackgroundTransparency = 1, Text = "📢 Sự kiện sẽ được cập nhật mỗi 60s...", Font = CONF.FONT, TextSize = 18, TextColor3 = CONF.TEXT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
+
+-- Tab: Boss
+local bossFrame = createTab("Boss")
+local bossLabel = new("TextLabel", {Parent = bossFrame, Size = UDim2.new(1,-20,1,-20), Position = UDim2.new(0,10,0,10),
+    BackgroundTransparency = 1, Text = "🧟 Danh sách Boss đang tải...", Font = CONF.FONT, TextSize = 18, TextColor3 = CONF.TEXT, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
+RunService.Heartbeat:Connect(function()
+    local text = "Danh sách Boss:\n"
+    for _,enemy in pairs(workspace:GetChildren()) do
+        if enemy:IsA("Model") and enemy:FindFirstChild("Humanoid") then
+            local bossName = enemy.Name
+            local alive = enemy.Humanoid.Health > 0
+            local icon = alive and "✅" or "❌"
+            text = text..icon.." "..bossName.."\n"
+        end
+    end
+    bossLabel.Text = text
+end)
+
+-- Default: show Thông tin Server
+infoFrame.Visible = true
+
+-- Toggle logic
+local open = false
+local function toggleUI()
+    open = not open
+    main.Visible = open
+end
+toggle.MouseButton1Click:Connect(toggleUI)
+
+-- Close button
+local closeBtn = new("TextButton", {Parent = main, Text = "✕", Size = UDim2.new(0,28,0,28), Position = UDim2.new(1,-34,0,6),
+    BackgroundColor3 = CONF.CARD, TextColor3 = CONF.TEXT, Font = CONF.FONT, TextSize = 20, AutoButtonColor = true})
+new("UICorner", {Parent = closeBtn, CornerRadius = UDim.new(0,6)})
+closeBtn.MouseButton1Click:Connect(toggleUI)
