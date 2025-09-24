@@ -1,0 +1,361 @@
+--[[
+Rayfield-style UI Framework (Safe skeleton, VN)
+- Dùng làm framework/skin kiểu Rayfield cho Blox-Fruits (hoặc game khác)
+- AN TOÀN: KHÔNG có teleport, auto-farm, bypass, hoặc tương tự.
+- Mọi nút chức năng "thực sự can thiệp gameplay" được để ở CHỖ THÊM LOGIC (commented).
+- Toàn bộ text tiếng Việt. Giao diện đẹp, animation, draggable, lưu cài đặt.
+- Paste vào KRNL và chạy.
+--]]
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- CONFIG
+local THEME = {
+    Accent = Color3.fromRGB(55, 160, 255),
+    Background = Color3.fromRGB(20,20,22),
+    Card = Color3.fromRGB(34,34,36),
+    Text = Color3.fromRGB(240,240,245),
+    Muted = Color3.fromRGB(160,160,170),
+    Font = Enum.Font.GothamSemibold,
+    Corner = UDim.new(0,10),
+    TweenTime = 0.18
+}
+
+-- Utility: safe Instance create
+local function new(class, props)
+    local obj = Instance.new(class)
+    if props then
+        for k,v in pairs(props) do
+            if k == "Parent" then obj.Parent = v else pcall(function() obj[k] = v end) end
+        end
+    end
+    return obj
+end
+
+-- Remove old UI
+pcall(function()
+    local old = CoreGui:FindFirstChild("RayfieldSafeUI")
+    if old then old:Destroy() end
+end)
+
+-- ScreenGui root
+local screen = new("ScreenGui", {Name = "RayfieldSafeUI", Parent = CoreGui, ResetOnSpawn = false})
+screen.IgnoreGuiInset = true
+screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main window
+local main = new("Frame", {
+    Parent = screen,
+    Name = "Main",
+    Size = UDim2.new(0, 860, 0, 520),
+    Position = UDim2.new(0.5, -430, 0.5, -260),
+    BackgroundColor3 = THEME.Background,
+    Active = true,
+    Draggable = true,
+})
+new("UICorner", {Parent = main, CornerRadius = THEME.Corner})
+new("UIStroke", {Parent = main, Color = THEME.Accent, Thickness = 1})
+
+-- Header
+local header = new("Frame", {Parent = main, Size = UDim2.new(1,0,0,70), BackgroundColor3 = THEME.Card})
+new("UICorner", {Parent = header, CornerRadius = THEME.Corner})
+local title = new("TextLabel", {Parent = header, Size = UDim2.new(1,-120,1,0), Position = UDim2.new(0,20,0,0), BackgroundTransparency = 1, Text = "Rayfield-style UI — Safe Framework", Font = THEME.Font, TextSize = 20, TextColor3 = THEME.Text, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center})
+local btnToggle = new("TextButton", {Parent = header, Size = UDim2.new(0,40,0,40), Position = UDim2.new(1,-56,0,15), Text = "✕", Font = THEME.Font, TextSize = 18, BackgroundColor3 = THEME.Card, TextColor3 = THEME.Text, AutoButtonColor = false})
+new("UICorner", {Parent = btnToggle, CornerRadius = UDim.new(0,8)})
+
+-- Left tab bar (vertical)
+local tabBar = new("Frame", {Parent = main, Position = UDim2.new(0,16,0,86), Size = UDim2.new(0,220,0,418), BackgroundColor3 = THEME.Card})
+new("UICorner", {Parent = tabBar, CornerRadius = UDim.new(0,10)})
+new("UIListLayout", {Parent = tabBar, Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+
+-- Right content area
+local content = new("Frame", {Parent = main, Position = UDim2.new(0,252,0,86), Size = UDim2.new(0,592,0,418), BackgroundColor3 = Color3.fromRGB(30,30,32)})
+new("UICorner", {Parent = content, CornerRadius = UDim.new(0,10)})
+new("UIStroke", {Parent = content, Color = Color3.fromRGB(45,45,48), Thickness = 1})
+
+-- Simple function to make a tab button
+local function makeTabButton(text, order)
+    local btn = new("TextButton", {Parent = tabBar, Size = UDim2.new(1,-16,0,48), BackgroundColor3 = Color3.fromRGB(40,40,42), Text = text, Font = THEME.Font, TextSize = 16, TextColor3 = THEME.Text, AutoButtonColor = false})
+    new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,8)})
+    btn.LayoutOrder = order or 1
+    return btn
+end
+
+-- Create pages container mapping
+local pages = {}
+local function createPage(name)
+    local page = new("Frame", {Parent = content, Size = UDim2.new(1, -20, 1, -20), Position = UDim2.new(0,10,0,10), BackgroundTransparency = 1, Visible = false})
+    pages[name] = page
+    return page
+end
+
+-- Show page helper
+local function showPage(name)
+    for k,v in pairs(pages) do v.Visible = false end
+    if pages[name] then pages[name].Visible = true end
+end
+
+-- Top: create tabs
+local tabsOrder = {"Dashboard", "Farm", "Teleport", "Boss", "ESP", "Settings"}
+local tabButtons = {}
+for i,name in ipairs(tabsOrder) do
+    tabButtons[name] = makeTabButton(name, i)
+end
+
+-- Dashboard page (info display)
+do
+    local p = createPage("Dashboard")
+    -- header
+    new("TextLabel", {Parent = p, Position = UDim2.new(0,0,0,0), Size = UDim2.new(1,0,0,28), BackgroundTransparency = 1, Text = "Tổng quan", Font = THEME.Font, TextSize = 16, TextColor3 = THEME.Text, TextXAlignment = Enum.TextXAlignment.Left})
+    local infoBox = new("Frame", {Parent = p, Position = UDim2.new(0,0,0,36), Size = UDim2.new(1,0,0,120), BackgroundColor3 = Color3.fromRGB(28,28,30)})
+    new("UICorner", {Parent = infoBox, CornerRadius = UDim.new(0,8)})
+    local lbl = new("TextLabel", {Parent = infoBox, Position = UDim2.new(0,12,0,8), Size = UDim2.new(1,-24,1,-16), BackgroundTransparency = 1, Text = "Đang tải thông tin...", Font = THEME.Font, TextSize = 14, TextColor3 = THEME.Text, TextWrapped = true})
+    -- realtime update (safe)
+    spawn(function()
+        while true do
+            if p.Visible then
+                local name = LocalPlayer and LocalPlayer.Name or "N/A"
+                local userId = LocalPlayer and LocalPlayer.UserId or "N/A"
+                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                local coords = hrp and string.format("X:%d Y:%d Z:%d", math.floor(hrp.Position.X), math.floor(hrp.Position.Y), math.floor(hrp.Position.Z)) or "N/A"
+                local fps = math.floor(1/RunService.RenderStepped:Wait())
+                local net = pcall(function() end) -- placeholder
+                lbl.Text = string.format("Người chơi: %s\nUserId: %s\nVị trí: %s\nFPS (local): %d", tostring(name), tostring(userId), tostring(coords), fps)
+            end
+            task.wait(0.9)
+        end
+    end)
+end
+
+-- Farm page (PLACEHOLDER: safe controls only)
+do
+    local p = createPage("Farm")
+    new("TextLabel", {Parent = p, Text = "Farm (Chỉ giao diện - KHÔNG thực thi)", Position = UDim2.new(0,0,0,0), Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Font = THEME.Font, TextSize = 16, TextColor3 = THEME.Text, TextXAlignment = Enum.TextXAlignment.Left})
+    local info = new("TextLabel", {Parent = p, Position = UDim2.new(0,0,0,28), Size = UDim2.new(1,0,0,60), BackgroundTransparency = 1, Text = "Các điều khiển farm được hiển thị như demo. Chỗ [CHỖ THÊM LOGIC] là nơi bạn tự thêm hành vi (tự chịu trách nhiệm).", Font = THEME.Font, TextSize = 14, TextColor3 = THEME.Muted, TextWrapped = true})
+    -- controls
+    local toggleAuto = new("TextButton", {Parent = p, Position = UDim2.new(0,0,0,100), Size = UDim2.new(0,160,0,36), Text = "Auto Farm (OFF)", BackgroundColor3 = Color3.fromRGB(60,60,62), Font = THEME.Font, TextColor3 = THEME.Text})
+    new("UICorner", {Parent = toggleAuto, CornerRadius = UDim.new(0,6)})
+    local selectMethod = new("TextButton", {Parent = p, Position = UDim2.new(0,176,0,100), Size = UDim2.new(0,160,0,36), Text = "Phương pháp: Mặc định", BackgroundColor3 = Color3.fromRGB(60,60,62), Font = THEME.Font, TextColor3 = THEME.Text})
+    new("UICorner", {Parent = selectMethod, CornerRadius = UDim.new(0,6)})
+    -- toggle behavior but safe: mock state only
+    local autoOn = false
+    toggleAuto.MouseButton1Click:Connect(function()
+        autoOn = not autoOn
+        toggleAuto.Text = "Auto Farm ("..(autoOn and "ON" or "OFF")..")"
+        -- SAFE: here you could call your farm logic, but we DO NOT implement it.
+        -- [CHỖ THÊM LOGIC] -> nếu bạn tự code farm hãy thực hiện ở đây.
+    end)
+end
+
+-- Teleport page (DISPLAY ONLY)
+do
+    local p = createPage("Teleport")
+    new("TextLabel", {Parent = p, Text = "Teleport (Chỉ hiển thị tọa độ)", Position = UDim2.new(0,0,0,0), Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Font = THEME.Font, TextSize = 16, TextColor3 = THEME.Text})
+    local info = new("TextLabel", {Parent = p, Text = "Danh sách điểm (bạn có thể copy tọa độ). Script này KHÔNG thực hiện teleport.", Position = UDim2.new(0,0,0,28), Size = UDim2.new(1,0,0,40), BackgroundTransparency = 1, Font = THEME.Font, TextSize = 14, TextColor3 = THEME.Muted, TextWrapped = true})
+    -- example points
+    local points = {
+        {name="Start Island", pos=Vector3.new(0, 10, 0)},
+        {name="Marine", pos=Vector3.new(3800,60,0)},
+        {name="Jungle", pos=Vector3.new(1200,40,0)}
+    }
+    local y = 80
+    for _,pt in ipairs(points) do
+        local row = new("Frame", {Parent = p, Position = UDim2.new(0,0,0,y), Size = UDim2.new(1,-16,0,36), BackgroundColor3 = Color3.fromRGB(28,28,30)})
+        new("UICorner", {Parent = row, CornerRadius = UDim.new(0,6)})
+        new("TextLabel", {Parent = row, Position = UDim2.new(0,8,0,6), Size = UDim2.new(0.6,0,1,-12), BackgroundTransparency = 1, Text = pt.name, Font = THEME.Font, TextSize = 14, TextColor3 = THEME.Text, TextXAlignment = Enum.TextXAlignment.Left})
+        local coordTxt = string.format("X:%d Y:%d Z:%d", math.floor(pt.pos.X), math.floor(pt.pos.Y), math.floor(pt.pos.Z))
+        local lbl = new("TextLabel", {Parent = row, Position = UDim2.new(0.6,8,0,6), Size = UDim2.new(0.24,0,1,-12), BackgroundTransparency = 1, Text = coordTxt, Font = THEME.Font, TextSize = 12, TextColor3 = THEME.Muted, TextXAlignment = Enum.TextXAlignment.Right})
+        local btn = new("TextButton", {Parent = row, Position = UDim2.new(1,-76,0,6), Size = UDim2.new(0,68,0,24), BackgroundColor3 = Color3.fromRGB(60,60,62), Text = "Copy", Font = THEME.Font, TextColor3 = THEME.Text})
+        new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,6)})
+        btn.MouseButton1Click:Connect(function()
+            local ok,err = pcall(function()
+                if setclipboard then setclipboard(coordTxt) end
+            end)
+            btn.Text = ok and "Đã copy" or "Không hỗ trợ"
+            delay(1, function() if btn and btn.Parent then pcall(function() btn.Text = "Copy" end) end end)
+        end)
+        y = y + 44
+    end
+end
+
+-- Boss page (read-only scan workspace)
+do
+    local p = createPage("Boss")
+    new("TextLabel", {Parent = p, Text = "Danh sách Boss (quét workspace, read-only)", Position = UDim2.new(0,0,0,0), Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Font = THEME.Font, TextSize = 16, TextColor3 = THEME.Text})
+    local scroll = new("ScrollingFrame", {Parent = p, Position = UDim2.new(0,0,0,28), Size = UDim2.new(1,-16,1,-36), BackgroundTransparency = 1, CanvasSize = UDim2.new(0,0,0,0), ScrollBarThickness = 6})
+    new("UIListLayout", {Parent = scroll, Padding = UDim.new(0,8)})
+    local updateBossList
+    updateBossList = function()
+        -- clear
+        for _,c in ipairs(scroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+        local found = {}
+        pcall(function()
+            for _,obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj:FindFirstChildWhichIsA("Humanoid") then
+                    table.insert(found, obj)
+                end
+            end
+        end)
+        if #found == 0 then
+            local no = new("TextLabel", {Parent = scroll, Size = UDim2.new(1,-12,0,36), BackgroundTransparency = 1, Text = "Không tìm thấy boss trong workspace", Font = THEME.Font, TextSize = 14, TextColor3 = THEME.Muted})
+        else
+            for _,m in ipairs(found) do
+                local alive = false
+                pcall(function()
+                    local h = m:FindFirstChildWhichIsA("Humanoid")
+                    if h and h.Health > 0 then alive = true end
+                end)
+                local row = new("Frame", {Parent = scroll, Size = UDim2.new(1,-12,0,36), BackgroundColor3 = Color3.fromRGB(28,28,30)})
+                new("UICorner", {Parent = row, CornerRadius = UDim.new(0,6)})
+                new("TextLabel", {Parent = row, Position = UDim2.new(0,8,0,6), Size = UDim2.new(1,-140,1,-12), BackgroundTransparency = 1, Text = m.Name, Font = THEME.Font, TextSize = 14, TextColor3 = THEME.Text, TextXAlignment = Enum.TextXAlignment.Left})
+                local dot = new("Frame", {Parent = row, Position = UDim2.new(1,-100,0,10), Size = UDim2.new(0,14,0,14), BackgroundColor3 = alive and Color3.fromRGB(70,200,70) or Color3.fromRGB(220,70,70)})
+                new("UICorner", {Parent = dot, CornerRadius = UDim.new(1,0)})
+                local statusLbl = new("TextLabel", {Parent = row, Position = UDim2.new(1,-84,0,6), Size = UDim2.new(0,72,0,24), BackgroundTransparency = 1, Text = alive and "Còn" or "Không", Font = THEME.Font, TextSize = 13, TextColor3 = THEME.Muted})
+            end
+        end
+        -- recalc canvas
+        task.wait(0.05)
+        local tot = 0
+        for _,c in ipairs(scroll:GetChildren()) do if c:IsA("Frame") then tot = tot + c.Size.Y.Offset + 8 end end
+        scroll.CanvasSize = UDim2.new(0,0,0,tot + 12)
+    end
+    updateBossList()
+    -- refresh loop
+    spawn(function()
+        while true do
+            updateBossList()
+            task.wait(6)
+        end
+    end)
+end
+
+-- ESP page (SAFE: only UI toggles and mock overlay; does not draw world ESP)
+do
+    local p = createPage("ESP")
+    new("TextLabel", {Parent = p, Text = "ESP (Demo UI - KHÔNG vẽ ESP thực tế)", Position = UDim2.new(0,0,0,0), Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Font = THEME.Font, TextSize = 16, TextColor3 = THEME.Text})
+    local cbPlayers = new("TextButton", {Parent = p, Position = UDim2.new(0,0,0,28), Size = UDim2.new(0,220,0,36), Text = "ESP Người chơi (OFF)", BackgroundColor3 = Color3.fromRGB(60,60,62), Font = THEME.Font, TextColor3 = THEME.Text})
+    new("UICorner", {Parent = cbPlayers, CornerRadius = UDim.new(0,6)})
+    local cbChests = new("TextButton", {Parent = p, Position = UDim2.new(0,240,0,28), Size = UDim2.new(0,220,0,36), Text = "ESP Rương (OFF)", BackgroundColor3 = Color3.fromRGB(60,60,62), Font = THEME.Font, TextColor3 = THEME.Text})
+    new("UICorner", {Parent = cbChests, CornerRadius = UDim.new(0,6)})
+    local espPlayersOn = false
+    cbPlayers.MouseButton1Click:Connect(function()
+        espPlayersOn = not espPlayersOn
+        cbPlayers.Text = "ESP Người chơi ("..(espPlayersOn and "ON" or "OFF")..")"
+        -- SAFE: do not implement world drawing here
+    end)
+    local espChestsOn = false
+    cbChests.MouseButton1Click:Connect(function()
+        espChestsOn = not espChestsOn
+        cbChests.Text = "ESP Rương ("..(espChestsOn and "ON" or "OFF")..")"
+    end)
+end
+
+-- Settings page (theme, export/import)
+do
+    local p = createPage("Settings")
+    new("TextLabel", {Parent = p, Text = "Cài đặt", Position = UDim2.new(0,0,0,0), Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Font = THEME.Font, TextSize = 16, TextColor3 = THEME.Text})
+    -- Accent color picker (simple presets)
+    local colors = {Color3.fromRGB(55,160,255), Color3.fromRGB(46,204,113), Color3.fromRGB(231,76,60), Color3.fromRGB(155,89,182)}
+    local x = 0
+    for i,c in ipairs(colors) do
+        local sw = new("TextButton", {Parent = p, Position = UDim2.new(0, 8 + x, 0, 36), Size = UDim2.new(0,40,0,36), BackgroundColor3 = c, Text = "", AutoButtonColor = false})
+        new("UICorner", {Parent = sw, CornerRadius = UDim.new(0,6)})
+        sw.MouseButton1Click:Connect(function()
+            THEME.Accent = c
+            -- update accent on UI (we update main stroke as example)
+            for _,v in ipairs(main:GetDescendants()) do
+                if v:IsA("UIStroke") then pcall(function() v.Color = THEME.Accent end) end
+            end
+        end)
+        x = x + 46
+    end
+    -- Export / Import (JSON)
+    local exportBtn = new("TextButton", {Parent = p, Position = UDim2.new(0,8,0,84), Size = UDim2.new(0,140,0,34), Text = "Export cấu hình", BackgroundColor3 = Color3.fromRGB(60,60,62), Font = THEME.Font, TextColor3 = THEME.Text})
+    new("UICorner", {Parent = exportBtn, CornerRadius = UDim.new(0,6)})
+    local importBtn = new("TextButton", {Parent = p, Position = UDim2.new(0,156,0,84), Size = UDim2.new(0,140,0,34), Text = "Import cấu hình", BackgroundColor3 = Color3.fromRGB(60,60,62), Font = THEME.Font, TextColor3 = THEME.Text})
+    new("UICorner", {Parent = importBtn, CornerRadius = UDim.new(0,6)})
+    exportBtn.MouseButton1Click:Connect(function()
+        local cfg = {accent = {r=THEME.Accent.R, g=THEME.Accent.G, b=THEME.Accent.B}}
+        local j = HttpService:JSONEncode(cfg)
+        local ok,err = pcall(function() if setclipboard then setclipboard(j) end end)
+        exportBtn.Text = ok and "Đã copy JSON" or "Không thể copy"
+        delay(1.2, function() pcall(function() exportBtn.Text = "Export cấu hình" end) end)
+    end)
+    importBtn.MouseButton1Click:Connect(function()
+        -- Opens a simple modal to paste JSON
+        local modal = new("Frame", {Parent = screen, Size = UDim2.new(0,420,0,200), Position = UDim2.new(0.5,-210,0.5,-100), BackgroundColor3 = THEME.Card, ZIndex = 999})
+        new("UICorner", {Parent = modal, CornerRadius = UDim.new(0,8)})
+        local box = new("TextBox", {Parent = modal, Size = UDim2.new(1,-24,1,-72), Position = UDim2.new(0,12,0,12), Text = "", ClearTextOnFocus = false, Font = THEME.Font, TextColor3 = THEME.Text})
+        local okBtn = new("TextButton", {Parent = modal, Size = UDim2.new(0,120,0,32), Position = UDim2.new(0.5,-60,1,-44), Text = "Nhập", BackgroundColor3 = Color3.fromRGB(70,70,74), Font = THEME.Font, TextColor3 = THEME.Text})
+        new("UICorner", {Parent = okBtn, CornerRadius = UDim.new(0,6)})
+        okBtn.MouseButton1Click:Connect(function()
+            local txt = box.Text
+            local ok, parsed = pcall(function() return HttpService:JSONDecode(txt) end)
+            if ok and parsed and parsed.accent then
+                local c = parsed.accent
+                THEME.Accent = Color3.new(c.r, c.g, c.b)
+                for _,v in ipairs(main:GetDescendants()) do
+                    if v:IsA("UIStroke") then pcall(function() v.Color = THEME.Accent end) end
+                end
+            end
+            modal:Destroy()
+        end)
+    end)
+end
+
+-- Hook tab buttons to pages
+tabButtons["Dashboard"].MouseButton1Click:Connect(function() showPage("Dashboard") end)
+tabButtons["Farm"].MouseButton1Click:Connect(function() showPage("Farm") end)
+tabButtons["Teleport"].MouseButton1Click:Connect(function() showPage("Teleport") end)
+tabButtons["Boss"].MouseButton1Click:Connect(function() showPage("Boss") end)
+tabButtons["ESP"].MouseButton1Click:Connect(function() showPage("ESP") end)
+tabButtons["Settings"].MouseButton1Click:Connect(function() showPage("Settings") end)
+
+-- default show dashboard
+showPage("Dashboard")
+
+-- toggle main visibility
+local visible = true
+btnToggle.MouseButton1Click:Connect(function()
+    visible = not visible
+    if not visible then
+        TweenService:Create(main, TweenInfo.new(0.2), {Position = main.Position - UDim2.new(0,0,0,30)}):Play()
+        delay(0.18, function() main.Visible = false end)
+    else
+        main.Visible = true
+        TweenService:Create(main, TweenInfo.new(0.2), {Position = UDim2.new(0.5, -430, 0.5, -260)}):Play()
+    end
+end)
+
+-- draggable toggle (small button)
+local dragBtn = new("TextButton", {Parent = screen, Text = "≡", Size = UDim2.new(0,46,0,46), Position = UDim2.new(0.02, 0, 0.04, 0), BackgroundColor3 = THEME.Accent, Font = THEME.Font, TextColor3 = Color3.new(1,1,1)})
+new("UICorner", {Parent = dragBtn, CornerRadius = UDim.new(1,0)})
+dragBtn.Active = true
+do
+    local dragging, dragInput, dragStart, startPos
+    dragBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true; dragStart = input.Position; startPos = dragBtn.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    dragBtn.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
+    RunService.Heartbeat:Connect(function()
+        if dragging and dragInput and dragStart and startPos then
+            local delta = dragInput.Position - dragStart
+            local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            pcall(function() dragBtn.Position = newPos end)
+        end
+    end)
+end
+
+-- Final print info
+print("[RayfieldSafeUI] Framework loaded — UI ready (safe mode).")
