@@ -1,0 +1,456 @@
+-- VanDucModz • Rayfield gốc • Blox Fruits (Full)
+-- Dán vào executor (KRNL / Synapse / Fluxus...)
+-- Tải Rayfield gốc trực tiếp từ GitHub (source.lua).
+-- Nếu URL bị block, script có fallback UI (đơn giản) để bạn vẫn dùng các chức năng cơ bản.
+
+-- CONFIG
+local WINDOW_TITLE = "VanDucModz • BloxF"
+local TELEGRAM_LINK = "t.me/ModzGaming"
+local DEFAULT_FLY_SPEED = 180
+local DEFAULT_FLY_HEIGHT = 40
+local ARRIVE_DISTANCE_ISLAND = 3
+local ARRIVE_DISTANCE_BOSS = 10
+local UPDATE_INTERVAL = 0.6
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- Character refs
+local Character, Humanoid, HRP
+local function refreshChar()
+    Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    HRP = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("Torso") or Character:FindFirstChild("LowerTorso")
+end
+refreshChar()
+LocalPlayer.CharacterAdded:Connect(refreshChar)
+
+-- Safe wrapper
+local function safeCall(fn) local ok, res = pcall(fn) if ok then return res end return nil end
+
+-- Try load Rayfield gốc
+local RAYFIELD_URL = "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua"
+local RayfieldLib = nil
+local loaded = pcall(function()
+    RayfieldLib = loadstring(game:HttpGet(RAYFIELD_URL, true))()
+end)
+if not loaded or not RayfieldLib then
+    warn("Không tải được Rayfield gốc từ URL. Sẽ dùng UI fallback.")
+end
+
+-- Teleport / Flight system
+local Teleport = {}
+Teleport.Settings = { FlySpeed = DEFAULT_FLY_SPEED, FlyHeight = DEFAULT_FLY_HEIGHT }
+Teleport._flying = false
+
+local function modelCenter(m)
+    if not m then return nil end
+    if m.PrimaryPart then return m.PrimaryPart.Position end
+    for _,d in pairs(m:GetDescendants()) do
+        if d:IsA("BasePart") then return d.Position end
+    end
+    return nil
+end
+
+function Teleport:FlyTo(targetPos, finalDistance, onArrive)
+    if not HRP then refreshChar() end
+    if not HRP then return false, "No HRP" end
+    finalDistance = finalDistance or 3
+    local spd = Teleport.Settings.FlySpeed or DEFAULT_FLY_SPEED
+    local flyH = Teleport.Settings.FlyHeight or DEFAULT_FLY_HEIGHT
+
+    local start = HRP.Position
+    local topY = math.max(start.Y, targetPos.Y) + flyH
+
+    Teleport._flying = true
+    local prevPS = false
+    if Humanoid then prevPS = Humanoid.PlatformStand pcall(function() Humanoid.PlatformStand = true end) end
+
+    while Teleport._flying and (HRP.Position - targetPos).Magnitude > finalDistance do
+        local dt = RunService.Heartbeat:Wait()
+        local dir = (targetPos - HRP.Position)
+        if dir.Magnitude <= 0.01 then break end
+        local unit = dir.Unit
+        local move = unit * math.clamp(spd * dt, 0, dir.Magnitude)
+        local frac = math.clamp((HRP.Position - start).Magnitude / math.max((targetPos - start).Magnitude, 0.0001), 0, 1)
+        local y = topY * (1 - frac) + targetPos.Y * frac
+        local desired = Vector3.new(HRP.Position.X + move.X, y, HRP.Position.Z + move.Z)
+        pcall(function() HRP.CFrame = CFrame.new(desired, targetPos) end)
+    end
+
+    Teleport._flying = false
+    if Humanoid then pcall(function() Humanoid.PlatformStand = prevPS end) end
+    if type(onArrive) == "function" then pcall(onArrive) end
+    return true
+end
+
+function Teleport:Stop() Teleport._flying = false end
+
+-- Scanners (Blox Fruits heuristics)
+local function scanIslands()
+    local islands = {}
+    -- Try common Blox Fruits containers
+    local tryPaths = {"Islands","Workspace.Islands","Map","Maps","Island","Workspace:Islands"}
+    -- scan workspace for Models with name containing island names or many Parts
+    for _,v in pairs(workspace:GetDescendants()) do
+        if (v:IsA("Model") or v:IsA("Folder")) and v.PrimaryPart == nil then
+            -- heuristics: many children parts OR name contains island keywords
+            local name = tostring(v.Name):lower()
+            if name:find("island") or name:find("đảo") or name:find("isle") or name:find("islands") or name:find("archipelago") then
+                local pos = modelCenter(v)
+                if pos then table.insert(islands, {Name = v.Name, Pos = pos, Instance = v}) end
+            end
+        elseif v:IsA("Model") and v.PrimaryPart then
+            local name = tostring(v.Name):lower()
+            if name:find("island") or name:find("đảo") then
+                table.insert(islands, {Name = v.Name, Pos = v.PrimaryPart.Position, Instance = v})
+            end
+        end
+    end
+    -- Also check top-level children that are clearly islands by having many BaseParts
+    for _,m in pairs(workspace:GetChildren()) do
+        if m:IsA("Model") then
+            local parts = 0
+            for _,d in pairs(m:GetDescendants()) do if d:IsA("BasePart") then parts = parts + 1 end end
+            if parts > 8 then
+                local pos = modelCenter(m)
+                if pos then table.insert(islands, {Name = m.Name, Pos = pos, Instance = m}) end
+            end
+        end
+    end
+
+    -- manual override: if none found, you can define manual list below
+    -- MANUAL LISTS (uncomment and edit if needed)
+    --[[
+    if #islands == 0 then
+        islands = {
+            {Name="Starter Island", Pos = Vector3.new(0,10,0)},
+            {Name="Pirate Island", Pos = Vector3.new(500,10,0)},
+        }
+    end
+    --]]
+    -- unique by name
+    local uniq, out = {}, {}
+    for _,i in pairs(islands) do
+        if not uniq[i.Name] then
+            table.insert(out, i)
+            uniq[i.Name] = true
+        end
+    end
+    return out
+end
+
+local function scanBosses()
+    local bosses = {}
+    for _,m in pairs(workspace:GetDescendants()) do
+        if m:IsA("Model") then
+            local nm = tostring(m.Name):lower()
+            if nm:find("boss") or nm:find("dungeon") or nm:find("raid") then
+                local pos = modelCenter(m)
+                if pos then table.insert(bosses, {Name = m.Name, Pos = pos, Instance = m}) end
+            end
+        end
+    end
+    -- Some bosses are NPCs in workspace.Enemies or workspace.NPCs
+    for _,m in pairs(workspace:GetChildren()) do
+        if m:IsA("Model") and (m:FindFirstChildOfClass("Humanoid") and not Players:FindFirstChild(m.Name)) then
+            local name = tostring(m.Name)
+            if #tostring(name) > 2 and name:lower():find("boss") then
+                local pos = modelCenter(m)
+                if pos then table.insert(bosses, {Name = m.Name, Pos = pos, Instance = m}) end
+            end
+        end
+    end
+    -- MANUAL: add Boss names if necessary (uncomment)
+    --[[
+    if #bosses == 0 then
+        bosses = {
+            {Name="BossNameExample", Pos=Vector3.new(100,10,200)}
+        }
+    end
+    --]]
+    return bosses
+end
+
+-- Events scanner (best-effort)
+local function scanEvents()
+    local out = {}
+    local keywords = {"event","sự kiện","boss","spawn","xuất hiện","starts in","ends in","raid","limited"}
+    local checked = {}
+    local function push(s)
+        if s and #s>0 and not checked[s] then table.insert(out, s) checked[s]=true end
+    end
+    -- scan ReplicatedStorage
+    if ReplicatedStorage then
+        for _,d in pairs(ReplicatedStorage:GetDescendants()) do
+            if d:IsA("StringValue") or d:IsA("TextLabel") or d:IsA("TextButton") then
+                local txt = tostring(d.Value or d.Text or d.Name)
+                local lower = txt:lower()
+                for _,kw in pairs(keywords) do if lower:find(kw) then push(txt) break end end
+            end
+        end
+    end
+    -- scan PlayerGui
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if pg then
+        for _,g in pairs(pg:GetDescendants()) do
+            if g:IsA("TextLabel") or g:IsA("TextButton") then
+                local txt = tostring(g.Text or "")
+                local lower = txt:lower()
+                for _,kw in pairs(keywords) do if lower:find(kw) then push(txt) break end end
+            end
+        end
+    end
+    if #out == 0 then table.insert(out, "Không tìm thấy sự kiện tự động trong game.") end
+    -- simple translate common words en->vi (basic)
+    for i,s in ipairs(out) do
+        local s2 = s
+        s2 = s2:gsub("(?i)event","Sự kiện")
+        s2 = s2:gsub("(?i)spawn","Xuất hiện")
+        s2 = s2:gsub("(?i)starts in","Bắt đầu trong")
+        s2 = s2:gsub("(?i)ends in","Kết thúc trong")
+        s2 = s2:gsub("(?i)boss","Boss")
+        out[i] = s2
+    end
+    return out
+end
+
+-- FPS meter
+local fps = 0
+do
+    local last = tick(); local frames = 0
+    RunService.RenderStepped:Connect(function()
+        frames = frames + 1
+        if tick() - last >= 1 then fps = frames; frames = 0; last = tick() end
+    end)
+end
+
+-- Ping (best-effort)
+local function getPing()
+    local ok, val = pcall(function()
+        local Stats = game:GetService("Stats")
+        if Stats and Stats:FindFirstChild("Network") and Stats.Network:FindFirstChild("Data Ping") then
+            return math.floor(Stats.Network["Data Ping"]:GetValue())
+        end
+        return "N/A"
+    end)
+    if ok then return val end
+    return "N/A"
+end
+
+-- UI building (Rayfield preferred)
+local UI = {}
+local state = { Islands = {}, Bosses = {}, SelectedIsland = nil, SelectedBoss = nil, AutoIsland = false, AutoBoss = false }
+
+if RayfieldLib then
+    local Rayfield = RayfieldLib
+    local Window = Rayfield:CreateWindow({
+        Name = WINDOW_TITLE,
+        LoadingTitle = WINDOW_TITLE,
+        LoadingSubtitle = "VanDucModz • Blox Fruits",
+        ConfigurationSaving = { Enabled = true, FolderName = nil, FileName = WINDOW_TITLE.."_cfg" },
+        Discord = { Enabled = false }
+    })
+
+    -- TAB 1: Thông Tin Server
+    local t1 = Window:CreateTab("Thông Tin Server")
+    local s1 = t1:CreateSection("Thông tin chung")
+    local lblFPS = s1:CreateLabel("FPS: 0")
+    local lblPing = s1:CreateLabel("Ping: N/A")
+    local playersPara = s1:CreateParagraph({Title = "Danh sách người chơi", Content = "Đang tải..."})
+
+    -- TAB 2: Map
+    local t2 = Window:CreateTab("Map")
+    local s2 = t2:CreateSection("Vị trí & đảo")
+    local lblPos = s2:CreateLabel("Vị trí: -")
+    local lblNearest = s2:CreateLabel("Gần nhất: -")
+    local islandsDropdown = s2:CreateDropdown({Name="Danh sách đảo", Options={"Đang tải..."}, CurrentOption="Đang tải...", Multiple=false, Flag="islandsDrop", Callback=function(v) state.SelectedIsland = v end})
+    s2:CreateButton({Name="Refresh đảo", Callback=function() state.Islands = scanIslands() end})
+
+    -- TAB 3: Dịch Chuyển
+    local t3 = Window:CreateTab("Dịch Chuyển")
+    local s3a = t3:CreateSection("TP đảo")
+    local islandPicker = s3a:CreateDropdown({Name="TP Đảo (chọn)", Options={"Đang tải..."}, CurrentOption="Đang tải...", Callback=function(v) state.SelectedIsland = v end})
+    s3a:CreateButton({Name="TP ĐẾN ĐẢO (1 lần)", Callback=function()
+        if not state.SelectedIsland then Rayfield:Notify({Title="Lỗi", Content="Chưa chọn đảo", Duration=3}) return end
+        for _,i in pairs(state.Islands) do
+            if i.Name == state.SelectedIsland then
+                local target = i.Pos + Vector3.new(0, ARRIVE_DISTANCE_ISLAND, 0)
+                Teleport:FlyTo(target, ARRIVE_DISTANCE_ISLAND, function() Rayfield:Notify({Title="TP", Content="Đã tới đảo: "..i.Name, Duration=3}) end)
+                return
+            end
+        end
+        Rayfield:Notify({Title="TP", Content="Không tìm thấy đảo: "..tostring(state.SelectedIsland), Duration=3})
+    end})
+    s3a:CreateToggle({Name="Auto TP đảo (giữ chọn đảo)", CurrentValue=false, Flag="autoIsland", Callback=function(v)
+        state.AutoIsland = v
+        if v then
+            spawn(function()
+                while state.AutoIsland do
+                    if state.SelectedIsland then
+                        for _,i in pairs(state.Islands) do
+                            if i.Name == state.SelectedIsland then
+                                Teleport:FlyTo(i.Pos + Vector3.new(0, ARRIVE_DISTANCE_ISLAND,0), ARRIVE_DISTANCE_ISLAND)
+                                break
+                            end
+                        end
+                    end
+                    wait(3)
+                end
+            end)
+        end
+    end})
+
+    local s3b = t3:CreateSection("TP Boss")
+    local bossPicker = s3b:CreateDropdown({Name="Chọn Boss", Options={"Đang tải..."}, CurrentOption="Đang tải...", Callback=function(v) state.SelectedBoss = v end})
+    s3b:CreateButton({Name="TP tới Boss (cách 10m)", Callback=function()
+        if not state.SelectedBoss then Rayfield:Notify({Title="Lỗi", Content="Chưa chọn boss", Duration=3}) return end
+        for _,b in pairs(state.Bosses) do
+            if b.Name == state.SelectedBoss then
+                if HRP then
+                    local dir = HRP.Position - b.Pos
+                    dir = Vector3.new(dir.X,0,dir.Z)
+                    if dir.Magnitude < 0.1 then dir = Vector3.new(0,0,10) end
+                    local approach = b.Pos + dir.Unit * ARRIVE_DISTANCE_BOSS
+                    approach = Vector3.new(approach.X, b.Pos.Y + 3, approach.Z)
+                    Teleport:FlyTo(approach, 3, function() Rayfield:Notify({Title="TP", Content="Gần boss: "..b.Name, Duration=3}) end)
+                    return
+                else
+                    Rayfield:Notify({Title="TP", Content="Không xác định nhân vật", Duration=3})
+                    return
+                end
+            end
+        end
+        Rayfield:Notify({Title="TP", Content="Không tìm thấy boss: "..tostring(state.SelectedBoss), Duration=3})
+    end})
+    s3b:CreateToggle({Name="Auto TP Boss", CurrentValue=false, Flag="autoBoss", Callback=function(v)
+        state.AutoBoss = v
+        if v then
+            spawn(function()
+                while state.AutoBoss do
+                    if state.SelectedBoss then
+                        for _,b in pairs(state.Bosses) do
+                            if b.Name == state.SelectedBoss and HRP then
+                                local dir = HRP.Position - b.Pos; dir = Vector3.new(dir.X,0,dir.Z)
+                                if dir.Magnitude < 0.1 then dir = Vector3.new(0,0,10) end
+                                local target = b.Pos + dir.Unit * ARRIVE_DISTANCE_BOSS
+                                target = Vector3.new(target.X, b.Pos.Y + 3, target.Z)
+                                Teleport:FlyTo(target, 3)
+                                break
+                            end
+                        end
+                    end
+                    wait(5)
+                end
+            end)
+        end
+    end})
+
+    local s3c = t3:CreateSection("Cài đặt bay")
+    s3c:CreateSlider({Name="Tốc độ bay", Range={50, 400}, Increment=10, Suffix="stud/s", CurrentValue=DEFAULT_FLY_SPEED, Flag="flyspeed", Callback=function(v) Teleport.Settings.FlySpeed = v end})
+    s3c:CreateSlider({Name="Độ cao bay", Range={10, 150}, Increment=1, Suffix="stud", CurrentValue=DEFAULT_FLY_HEIGHT, Flag="flyheight", Callback=function(v) Teleport.Settings.FlyHeight = v end})
+
+    -- TAB 4: Sự kiện Hot
+    local t4 = Window:CreateTab("Sự kiện Hot")
+    local s4 = t4:CreateSection("Sự kiện (auto scan)")
+    local eventsPara = s4:CreateParagraph({Title="Sự kiện", Content="Đang tìm..."})
+
+    -- TAB 5: Cài đặt
+    local t5 = Window:CreateTab("Cài Đặt")
+    local s5 = t5:CreateSection("Giao diện")
+    s5:CreateDropdown({Name="Font UI (enum name)", Options={"SourceSans","SourceSansBold","Gotham","GothamBold","Arcade","Legacy"}, CurrentOption="SourceSans", Callback=function(f)
+        -- Rayfield internal font change unsupported generically; just notify
+        Rayfield:Notify({Title="Font", Content="Đã chọn font: "..tostring(f), Duration=2})
+    end})
+    s5:CreateColorPicker({Name="Màu chủ đạo UI", Default=Color3.fromRGB(100,100,255), Callback=function(c) Rayfield:Notify({Title="Theme", Content="Màu UI đã chỉnh", Duration=2}) end})
+    s5:CreateToggle({Name="Bật theme", CurrentValue=true, Callback=function(v) Rayfield:Notify({Title="Theme", Content=(v and "Theme bật" or "Theme tắt"), Duration=2}) end})
+
+    -- TAB 6: Telegram
+    local t6 = Window:CreateTab("Telegram")
+    local s6 = t6:CreateSection("Kết nối")
+    s6:CreateButton({Name="Sao chép link ModzGaming", Callback=function()
+        local ok = pcall(function() setclipboard(TELEGRAM_LINK) end)
+        if ok then Rayfield:Notify({Title="Telegram", Content="Đã copy: "..TELEGRAM_LINK, Duration=3}) else Rayfield:Notify({Title="Telegram", Content="Copy thất bại. Link: "..TELEGRAM_LINK, Duration=4}) end
+    end})
+    s6:CreateLabel("Link: "..TELEGRAM_LINK)
+
+    -- Periodic updater
+    spawn(function()
+        while true do
+            -- players
+            local names = {}
+            for _,p in pairs(Players:GetPlayers()) do
+                table.insert(names, p.Name .. (p==LocalPlayer and " (Bạn)" or ""))
+            end
+            playersPara:Update({Title="Danh sách người chơi", Content = table.concat(names, "\n")})
+            lblFPS:Update("FPS: "..tostring(fps))
+            lblPing:Update("Ping: "..tostring(getPing()))
+
+            -- scan islands & bosses
+            local islands = scanIslands()
+            state.Islands = islands
+            local islandNames = {}
+            for _,i in pairs(islands) do table.insert(islandNames, i.Name) end
+            if #islandNames == 0 then islandNames = {"(không tìm thấy đảo)"} end
+            islandPicker:Refresh(islandNames, true)
+            islandsDropdown:Refresh(islandNames, true)
+
+            local bosses = scanBosses()
+            state.Bosses = bosses
+            local bossNames = {}
+            for _,b in pairs(bosses) do table.insert(bossNames, b.Name) end
+            if #bossNames == 0 then bossNames = {"(không tìm thấy boss)"} end
+            bossPicker:Refresh(bossNames, true)
+
+            -- pos & nearest
+            if HRP then
+                lblPos:Update("Vị trí: "..string.format("%.1f, %.1f, %.1f", HRP.Position.X, HRP.Position.Y, HRP.Position.Z))
+                local nearest, minD = nil, math.huge
+                for _,i in pairs(islands) do
+                    local d = (HRP.Position - i.Pos).Magnitude
+                    if d < minD then minD = d; nearest = i end
+                end
+                if nearest then lblNearest:Update("Gần nhất: "..nearest.Name.." ("..string.format("%.1fm", minD)..")") else lblNearest:Update("Gần nhất: (không có)") end
+            end
+
+            -- events
+            local events = scanEvents()
+            eventsPara:Update({Title="Sự kiện", Content = table.concat(events, "\n\n")})
+
+            wait(UPDATE_INTERVAL)
+        end
+    end)
+
+    Rayfield:Notify({Title = WINDOW_TITLE, Content = "Rayfield gốc đã tải. Chọn tab để bắt đầu.", Duration = 4})
+    UI.Rayfield = true
+else
+    -- Fallback simple UI in PlayerGui (nếu Rayfield không load được)
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    if playerGui:FindFirstChild("VanDuc_FallbackUI") then playerGui.VanDuc_FallbackUI:Destroy() end
+    local screenGui = Instance.new("ScreenGui", playerGui); screenGui.Name = "VanDuc_FallbackUI"; screenGui.ResetOnSpawn=false
+    local frame = Instance.new("Frame", screenGui); frame.Size=UDim2.new(0,620,0,420); frame.Position=UDim2.new(0.5,-310,0.5,-210); frame.Active=true; frame.Draggable=true
+    frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    local title = Instance.new("TextLabel", frame); title.Size=UDim2.new(1,0,0,48); title.BackgroundTransparency=1; title.Text=WINDOW_TITLE.." (fallback)"; title.TextXAlignment=Enum.TextXAlignment.Left; title.Font=Enum.Font.SourceSansBold; title.TextSize=20; title.TextColor3=Color3.fromRGB(240,240,240); title.Position=UDim2.new(0,12,0,8)
+    -- provide minimal controls: buttons to show players, islands, events, TP
+    local txt = Instance.new("TextBox", frame); txt.Size=UDim2.new(1,-24,1,-120); txt.Position=UDim2.new(0,12,0,60); txt.MultiLine=true; txt.ClearTextOnFocus=false; txt.TextWrapped=true; txt.Text="Fallback UI\n\n"
+    local btnRefresh = Instance.new("TextButton", frame); btnRefresh.Size=UDim2.new(0,160,0,34); btnRefresh.Position=UDim2.new(0,12,1,-44); btnRefresh.Text="Refresh"; btnRefresh.MouseButton1Click:Connect(function()
+        local lines = {}
+        for _,p in pairs(Players:GetPlayers()) do table.insert(lines, p.Name .. (p==LocalPlayer and " (Bạn)" or "")) end
+        txt.Text = "Players:\n"..table.concat(lines, "\n").."\n\nIslands:\n"
+        for _,i in pairs(scanIslands()) do txt.Text = txt.Text..("- "..i.Name.." @ "..string.format("%.1f, %.1f, %.1f\n", i.Pos.X, i.Pos.Y, i.Pos.Z)) end
+        txt.Text = txt.Text.."\nEvents:\n"
+        for _,e in pairs(scanEvents()) do txt.Text = txt.Text..("- "..e.."\n") end
+    end)
+    local btnCopy = Instance.new("TextButton", frame); btnCopy.Size=UDim2.new(0,200,0,34); btnCopy.Position=UDim2.new(0,180,1,-44); btnCopy.Text="Copy Telegram"; btnCopy.MouseButton1Click:Connect(function()
+        local ok = pcall(function() setclipboard(TELEGRAM_LINK) end)
+        if ok then txt.Text = txt.Text.."\nCopied: "..TELEGRAM_LINK else txt.Text = txt.Text.."\nCopy failed. Link: "..TELEGRAM_LINK end
+    end)
+    print("Rayfield gốc không tải được, đang chạy fallback UI.")
+end
+
+-- END SCRIPT
