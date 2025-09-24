@@ -1,0 +1,545 @@
+--[[ 
+  ModzRO - Full Read-Only Menu (Vietnamese)
+  - Paste vào KRNL and run in-game (Blox Fruits)
+  - Read-only: hiển thị realtime info, map, sự kiện, danh sách boss (xanh=alive, đỏ=dead)
+  - Không thay đổi CFrame, không teleport, không auto-farm
+--]]
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Config (scale-based)
+local CONF = {
+    WIDTH_SCALE = 0.62,   -- menu width relative to screen width
+    HEIGHT_SCALE = 0.66,  -- menu height relative to screen height
+    ACCENT = Color3.fromRGB(45,155,255),
+    BG = Color3.fromRGB(18,18,20),
+    CARD = Color3.fromRGB(30,30,32),
+    TEXT = Color3.fromRGB(235,235,240),
+    MUTED = Color3.fromRGB(150,150,160),
+    FONT = Enum.Font.GothamSemibold,
+    EVENT_REFRESH = 60,
+    BOSS_REFRESH = 6,
+    MAP_UPDATE = 0.8,
+    TWEEN = 0.18,
+}
+
+-- Safe new helper
+local function new(class, props)
+    local obj = Instance.new(class)
+    if props then
+        for k,v in pairs(props) do
+            if k == "Parent" then obj.Parent = v else pcall(function() obj[k] = v end) end
+        end
+    end
+    return obj
+end
+
+-- Cleanup if existing
+pcall(function()
+    local old = CoreGui:FindFirstChild("ModzRO_UI")
+    if old then old:Destroy() end
+end)
+
+-- ScreenGui
+local screen = new("ScreenGui", {Name="ModzRO_UI", Parent=CoreGui, ResetOnSpawn=false})
+screen.IgnoreGuiInset = true
+screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Optional blur effect
+local blur = Lighting:FindFirstChild("ModzROBlur")
+if not blur then blur = new("BlurEffect", {Name="ModzROBlur", Parent=Lighting, Size=0, Enabled=false}) end
+
+-- Toggle button (draggable)
+local toggle = new("ImageButton", {
+    Parent = screen,
+    Name = "ToggleBtn",
+    Size = UDim2.new(0,72,0,72),
+    Position = UDim2.new(0.02,0,0.08,0),
+    BackgroundColor3 = CONF.ACCENT,
+    AutoButtonColor = false,
+    ZIndex = 999
+})
+new("UICorner", {Parent=toggle, CornerRadius=UDim.new(1,0)})
+toggle.Image = ""
+toggle.Active = true
+local toggleLabel = new("TextLabel", {Parent=toggle, Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Text="MG", Font=CONF.FONT, TextSize=26, TextColor3=Color3.new(1,1,1)})
+
+-- Main window (scale-based)
+local screenW, screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X or 1280, workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 720
+local main = new("Frame", {
+    Parent = screen,
+    Name = "MainWindow",
+    Size = UDim2.new(CONF.WIDTH_SCALE, 0, CONF.HEIGHT_SCALE, 0),
+    Position = UDim2.new(0.5,0,0.5,0),
+    AnchorPoint = Vector2.new(0.5,0.5),
+    BackgroundColor3 = CONF.BG,
+    Visible = true,
+    ZIndex = 998
+})
+new("UICorner", {Parent=main, CornerRadius=UDim.new(0,12)})
+local stroke = new("UIStroke", {Parent=main, Color=CONF.ACCENT, Thickness=1})
+
+-- Header
+local header = new("Frame", {Parent=main, Size=UDim2.new(1,0,0,64), BackgroundColor3=CONF.CARD})
+new("UICorner", {Parent=header, CornerRadius=UDim.new(0,12)})
+local title = new("TextLabel", {Parent=header, Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="⚡ Modz Read-Only Menu ⚡", Font=CONF.FONT, TextSize=20, TextColor3=CONF.TEXT})
+local closeBtn = new("TextButton", {Parent=header, Size=UDim2.new(0,36,0,36), Position=UDim2.new(1,-52,0,14), BackgroundColor3=CONF.CARD, Text="✕", Font=CONF.FONT, TextSize=18, TextColor3=CONF.TEXT, AutoButtonColor=false})
+new("UICorner", {Parent=closeBtn, CornerRadius=UDim.new(0,8)})
+
+-- Body: left sidebar + right content
+local body = new("Frame", {Parent=main, Position=UDim2.new(0,0,0,64), Size=UDim2.new(1,0,1,-64), BackgroundTransparency=1})
+local sidebar = new("Frame", {Parent=body, Position=UDim2.new(0,12,0,12), Size=UDim2.new(0,0,0,0)}) -- set size after compute
+local content = new("Frame", {Parent=body, Position=UDim2.new(0,0,0,12), Size=UDim2.new(0,0,0,0), BackgroundColor3=Color3.fromRGB(36,36,38)})
+new("UICorner", {Parent=content, CornerRadius=UDim.new(0,10)})
+new("UIStroke", {Parent=content, Color=Color3.fromRGB(50,50,54), Thickness=1})
+
+-- compute sidebar and content sizes relative
+sidebar.Size = UDim2.new(0.28, 0, 1, -24)   -- 28% width
+content.Size = UDim2.new(0.72, -36, 1, -24)
+sidebar.BackgroundColor3 = CONF.CARD
+new("UICorner", {Parent=sidebar, CornerRadius=UDim.new(0,10)})
+
+-- sidebar logo area
+local logoArea = new("Frame", {Parent=sidebar, Size=UDim2.new(1,-24,0,110), Position=UDim2.new(0,12,0,12), BackgroundTransparency=1})
+local logoImg = new("ImageLabel", {Parent=logoArea, Size=UDim2.new(0,72,0,72), Position=UDim2.new(0,8,0,14), BackgroundTransparency=1, Image=""})
+new("UICorner", {Parent=logoImg, CornerRadius=UDim.new(1,0)})
+new("TextLabel", {Parent=logoArea, Position=UDim2.new(0,92,0,18), Size=UDim2.new(1,-100,0,60), BackgroundTransparency=1, Text="Modz Menu (Read-only)", Font=CONF.FONT, TextSize=16, TextColor3=CONF.TEXT, TextXAlignment=Enum.TextXAlignment.Left})
+
+-- tabs container
+local tabContainer = new("Frame", {Parent=sidebar, Position=UDim2.new(0,12,0,132), Size=UDim2.new(1,-24,1,-144), BackgroundTransparency=1})
+local tabLayout = new("UIListLayout", {Parent=tabContainer, Padding=UDim.new(0,10), SortOrder=Enum.SortOrder.LayoutOrder})
+tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+-- define tabs (Vietnamese)
+local TAB = {
+    {id="server", name="Thông tin Server", icon="📊"},
+    {id="map", name="Map", icon="🗺️"},
+    {id="settings", name="Cài Đặt", icon="⚙️"},
+    {id="events", name="Sự kiện Hot", icon="📰"},
+    {id="boss", name="Boss", icon="👹"},
+    {id="teleport", name="Teleport (hiển thị)", icon="✈️"},
+}
+
+local pages = {}
+local tabButtons = {}
+
+local function createTabButton(t)
+    local btn = new("TextButton", {Parent=tabContainer, Size=UDim2.new(1,0,0,54), BackgroundColor3=Color3.fromRGB(52,52,55), AutoButtonColor=false})
+    new("UICorner", {Parent=btn, CornerRadius=UDim.new(0,8)})
+    new("UIStroke", {Parent=btn, Color=Color3.fromRGB(50,50,54), Thickness=1})
+    new("TextLabel", {Parent=btn, Position=UDim2.new(0,12,0,8), Size=UDim2.new(0,36,0,36), BackgroundTransparency=1, Text=t.icon, Font=CONF.FONT, TextSize=20, TextColor3=CONF.TEXT})
+    new("TextLabel", {Parent=btn, Position=UDim2.new(0,60,0,8), Size=UDim2.new(1,-76,0,36), BackgroundTransparency=1, Text=t.name, Font=CONF.FONT, TextSize=15, TextColor3=CONF.TEXT, TextXAlignment=Enum.TextXAlignment.Left})
+    return btn
+end
+
+-- create pages and buttons
+for i,t in ipairs(TAB) do
+    local btn = createTabButton(t)
+    tabButtons[t.id] = btn
+    local page = new("Frame", {Parent=content, Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Visible=(i==1)})
+    if i ~= 1 then page.Position = UDim2.new(1,0,0,0) end
+    pages[t.id] = page
+
+    btn.MouseButton1Click:Connect(function()
+        for k,v in pairs(tabButtons) do if v:IsA("TextButton") then v.BackgroundColor3 = Color3.fromRGB(52,52,55) end end
+        btn.BackgroundColor3 = Color3.fromRGB(68,68,72)
+        for name,p in pairs(pages) do
+            if p.Visible and name ~= t.id then
+                TweenService:Create(p, TweenInfo.new(CONF.TWEEN), {Position=UDim2.new(-1,0,0,0)}):Play()
+                delay(CONF.TWEEN, function() p.Visible = false end)
+            end
+        end
+        pages[t.id].Visible = true
+        pages[t.id].Position = UDim2.new(1,0,0,0)
+        TweenService:Create(pages[t.id], TweenInfo.new(CONF.TWEEN), {Position=UDim2.new(0,0,0,0)}):Play()
+    end)
+end
+tabButtons["server"].BackgroundColor3 = Color3.fromRGB(68,68,72)
+
+-- small label row helper
+local function row(parent, y, labelText, initValue)
+    local frame = new("Frame", {Parent=parent, Position=UDim2.new(0,16,0,y), Size=UDim2.new(1,-32,0,28), BackgroundTransparency=1})
+    local left = new("TextLabel", {Parent=frame, Size=UDim2.new(0.6,0,1,0), BackgroundTransparency=1, Text=labelText, Font=CONF.FONT, TextSize=14, TextColor3=CONF.MUTED, TextXAlignment=Enum.TextXAlignment.Left})
+    local right = new("TextLabel", {Parent=frame, Position=UDim2.new(0.6,0,0,0), Size=UDim2.new(0.4,0,1,0), BackgroundTransparency=1, Text=initValue or "-", Font=CONF.FONT, TextSize=14, TextColor3=CONF.TEXT, TextXAlignment=Enum.TextXAlignment.Right})
+    return {Left=left, Right=right, Frame=frame}
+end
+
+-- ===== Page: Thông tin Server =====
+do
+    local p = pages["server"]
+    new("TextLabel", {Parent=p, Position=UDim2.new(0,16,0,12), Size=UDim2.new(1,-32,0,22), BackgroundTransparency=1, Text="Thông tin Server (Realtime)", Font=CONF.FONT, TextSize=16, TextColor3=CONF.TEXT})
+    local card = new("Frame", {Parent=p, Position=UDim2.new(0,16,0,46), Size=UDim2.new(1,-32,0,260), BackgroundColor3=CONF.CARD})
+    new("UICorner", {Parent=card, CornerRadius=UDim.new(0,8)})
+    local nameR = row(card, 8, "Người chơi", LocalPlayer.Name)
+    local idR = row(card, 8+34, "UserId", tostring(LocalPlayer.UserId))
+    local levelR = row(card, 8+68, "Level", "-")
+    local beliR = row(card, 8+102, "Beli", "-")
+    local raceR = row(card, 8+136, "Race", "-")
+    local fruitR = row(card, 8+170, "Trái Ác Quỷ", "-")
+
+    local perf = new("Frame", {Parent=p, Position=UDim2.new(0,16,0,320), Size=UDim2.new(1,-32,0,80), BackgroundColor3=CONF.CARD})
+    new("UICorner", {Parent=perf, CornerRadius=UDim.new(0,8)})
+    local fpsR = row(perf, 8, "FPS", "0")
+    local pingR = row(perf, 8+34, "Ping", "—")
+
+    -- FPS calc
+    spawn(function()
+        local lastTick = tick(); local frames = 0
+        while true do
+            frames = frames + 1
+            local now = tick()
+            if now - lastTick >= 0.6 then
+                local fps = math.floor(frames/(now-lastTick)+0.5)
+                if main.Visible then pcall(function() fpsR.Right.Text = tostring(fps) end) end
+                frames = 0; lastTick = now
+            end
+            RunService.RenderStepped:Wait()
+        end
+    end)
+
+    -- update player stats loop (active only when visible)
+    spawn(function()
+        while true do
+            if main.Visible then
+                pcall(function()
+                    local function tryFields(...)
+                        for _,n in ipairs({...}) do
+                            if LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild(n) then return tostring(LocalPlayer.Data[n].Value) end
+                            if LocalPlayer:FindFirstChild("leaderstats") and LocalPlayer.leaderstats:FindFirstChild(n) then return tostring(LocalPlayer.leaderstats[n].Value) end
+                        end
+                        return "-"
+                    end
+                    levelR.Right.Text = tryFields("Level","level","Lvl")
+                    beliR.Right.Text = tryFields("Beli","Beli","Money")
+                    raceR.Right.Text = tryFields("Race","race") 
+                    fruitR.Right.Text = tryFields("DevilFruit","Fruit","DevilFruit") or "Không"
+                    local net = Stats:FindFirstChild("Network")
+                    if net and net:FindFirstChild("Data Ping") then pingR.Right.Text = tostring(math.floor(net["Data Ping"].Value)).." ms" else pingR.Right.Text = "—" end
+                end)
+                task.wait(0.9)
+            else task.wait(0.7) end
+        end
+    end)
+end
+
+-- ===== Page: Map =====
+local ISLANDS = {
+    {name="Starter Island", emoji="🏝️", min=Vector3.new(-1200,-500,-1200), max=Vector3.new(1200,900,1200), pos=Vector3.new(0,10,0)},
+    {name="Jungle Island", emoji="🌴", min=Vector3.new(600,-300,-900), max=Vector3.new(1800,900,900), pos=Vector3.new(1200,40,0)},
+    {name="Desert Island", emoji="🏜️", min=Vector3.new(1900,-300,-900), max=Vector3.new(3200,900,900), pos=Vector3.new(2500,40,0)},
+    {name="Sky Island", emoji="☁️", min=Vector3.new(-2200,800,-2200), max=Vector3.new(-1100,2200,2200), pos=Vector3.new(-1500,1200,0)},
+    {name="Marine Fortress", emoji="⚓", min=Vector3.new(3400,-200,-900), max=Vector3.new(4200,900,900), pos=Vector3.new(3800,60,0)},
+}
+
+local function inside(min,max,pos)
+    return pos.X>=min.X and pos.X<=max.X and pos.Y>=min.Y and pos.Y<=max.Y and pos.Z>=min.Z and pos.Z<=max.Z
+end
+
+do
+    local p = pages["map"]
+    new("TextLabel", {Parent=p, Position=UDim2.new(0,16,0,12), Size=UDim2.new(1,-32,0,20), BackgroundTransparency=1, Text="Map & Vị trí", Font=CONF.FONT, TextSize=16, TextColor3=CONF.TEXT})
+    local card = new("Frame", {Parent=p, Position=UDim2.new(0,16,0,44), Size=UDim2.new(1,-32,0,336), BackgroundColor3=CONF.CARD})
+    new("UICorner", {Parent=card, CornerRadius=UDim.new(0,8)})
+    local cur = row(card, 8, "Đảo hiện tại", "Detecting...")
+    local coords = row(card, 8+34, "Toạ độ (X,Y,Z)", "-")
+    local listLabel = new("TextLabel", {Parent=card, Position=UDim2.new(0,16,0,120), Size=UDim2.new(1,-32,0,20), BackgroundTransparency=1, Text="Danh sách đảo (chỉ hiển thị)", Font=CONF.FONT, TextSize=13, TextColor3=CONF.MUTED})
+    local scroll = new("ScrollingFrame", {Parent=card, Position=UDim2.new(0,12,0,144), Size=UDim2.new(1,-24,1,-156), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), ScrollBarThickness=8})
+    new("UIListLayout", {Parent=scroll, Padding=UDim.new(0,8)})
+
+    for _,inf in ipairs(ISLANDS) do
+        local rowf = new("Frame", {Parent=scroll, Size=UDim2.new(1,0,0,40), BackgroundColor3=Color3.fromRGB(48,48,50)})
+        new("UICorner", {Parent=rowf, CornerRadius=UDim.new(0,8)})
+        new("TextLabel", {Parent=rowf, Position=UDim2.new(0,12,0,6), Size=UDim2.new(0.7,-12,0,28), BackgroundTransparency=1, Text=inf.emoji.." "..inf.name, Font=CONF.FONT, TextSize=14, TextColor3=CONF.TEXT, TextXAlignment=Enum.TextXAlignment.Left})
+        new("TextLabel", {Parent=rowf, Position=UDim2.new(0.7,12,0,6), Size=UDim2.new(0.3,-24,0,28), BackgroundTransparency=1, Text="(hiển thị)", Font=CONF.FONT, TextSize=12, TextColor3=CONF.MUTED, TextXAlignment=Enum.TextXAlignment.Right})
+    end
+    task.wait(0.05)
+    local function recalc()
+        local tot = 0
+        for _,c in ipairs(scroll:GetChildren()) do if c:IsA("Frame") then tot = tot + c.Size.Y.Offset + 8 end end
+        scroll.CanvasSize = UDim2.new(0,0,0,tot + 12)
+    end
+    recalc()
+
+    spawn(function()
+        while true do
+            if main.Visible then
+                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local pos = hrp.Position
+                    coords.Right.Text = string.format("X:%d Y:%d Z:%d", math.floor(pos.X), math.floor(pos.Y), math.floor(pos.Z))
+                    local islandName, emoji = "Không rõ", "❓"
+                    for _,inf in ipairs(ISLANDS) do
+                        if inside(inf.min, inf.max, pos) then islandName, emoji = inf.name, inf.emoji break end
+                    end
+                    cur.Right.Text = tostring(emoji).." "..islandName
+                else
+                    coords.Right.Text = "N/A"; cur.Right.Text = "Không có nhân vật"
+                end
+                task.wait(CONF.MAP_UPDATE)
+            else task.wait(0.7) end
+        end
+    end)
+end
+
+-- ===== Events Page (Tiếng Việt) =====
+do
+    local p = pages["events"]
+    new("TextLabel", {Parent=p, Position=UDim2.new(0,16,0,12), Size=UDim2.new(1,-32,0,20), BackgroundTransparency=1, Text="Sự kiện Hot (Quét ReplicatedStorage/Workspace)", Font=CONF.FONT, TextSize=16, TextColor3=CONF.TEXT})
+    local scroll = new("ScrollingFrame", {Parent=p, Position=UDim2.new(0,16,0,44), Size=UDim2.new(1,-32,1,-56), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), ScrollBarThickness=8})
+    new("UIListLayout", {Parent=scroll, Padding=UDim.new(0,8)})
+
+    local function clear()
+        for _,c in ipairs(scroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+    end
+    local function makeCard(title, date, desc, status)
+        local card = new("Frame", {Parent=scroll, Size=UDim2.new(1,-12,0,88), BackgroundColor3=CONF.CARD})
+        new("UICorner", {Parent=card, CornerRadius=UDim.new(0,8)})
+        new("UIStroke", {Parent=card, Color=Color3.fromRGB(50,50,54), Thickness=1})
+        new("TextLabel", {Parent=card, Position=UDim2.new(0,12,0,8), Size=UDim2.new(1,-24,0,20), BackgroundTransparency=1, Text=title, Font=CONF.FONT, TextSize=15, TextColor3=CONF.TEXT})
+        new("TextLabel", {Parent=card, Position=UDim2.new(0,12,0,30), Size=UDim2.new(1,-24,0,16), BackgroundTransparency=1, Text="Thời gian: "..date, Font=CONF.FONT, TextSize=12, TextColor3=CONF.MUTED})
+        local statText = status or "Đang diễn ra"
+        new("TextLabel", {Parent=card, Position=UDim2.new(0,12,0,46), Size=UDim2.new(1,-24,0,36), BackgroundTransparency=1, Text=desc.."\nTrạng thái: "..statText, Font=CONF.FONT, TextSize=13, TextColor3=CONF.TEXT, TextWrapped=true})
+    end
+
+    local function scanEvents()
+        local out = {}
+        pcall(function()
+            if ReplicatedStorage:FindFirstChild("Events") then
+                for _,v in ipairs(ReplicatedStorage.Events:GetChildren()) do
+                    table.insert(out, {title = "Sự kiện: "..v.Name, date = os.date("%d/%m/%Y %H:%M:%S"), desc = "Sự kiện có trong ReplicatedStorage.", status = "Thông tin có sẵn"})
+                end
+            end
+            for _,obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and tostring(obj.Name):lower():find("event") then
+                    table.insert(out, {title = "Sự kiện: "..obj.Name, date = os.date("%d/%m/%Y %H:%M:%S"), desc = "Sự kiện xuất hiện trong workspace.", status = "Đang diễn ra"})
+                end
+            end
+        end)
+        if #out == 0 then table.insert(out, {title="Không tìm thấy sự kiện", date=os.date("%d/%m/%Y %H:%M:%S"), desc="Không có sự kiện được phát hiện", status="Không có"}) end
+        return out
+    end
+
+    local function refresh()
+        clear()
+        local arr = scanEvents()
+        for _,ev in ipairs(arr) do makeCard(ev.title, ev.date, ev.desc, ev.status) end
+        task.wait(0.05)
+        local tot = 0
+        for _,v in ipairs(scroll:GetChildren()) do if v:IsA("Frame") then tot = tot + v.Size.Y.Offset + 8 end end
+        scroll.CanvasSize = UDim2.new(0,0,0,tot + 12)
+    end
+
+    refresh()
+    spawn(function()
+        while true do
+            if main.Visible then refresh(); task.wait(CONF.EVENT_REFRESH) else task.wait(1) end
+        end
+    end)
+end
+
+-- ===== Boss Page (hiển thị icon xanh/đỏ) =====
+do
+    local p = pages["boss"]
+    new("TextLabel", {Parent=p, Position=UDim2.new(0,16,0,12), Size=UDim2.new(1,-32,0,20), BackgroundTransparency=1, Text="Danh sách Boss (Quét workspace)", Font=CONF.FONT, TextSize=16, TextColor3=CONF.TEXT})
+    local scroll = new("ScrollingFrame", {Parent=p, Position=UDim2.new(0,16,0,44), Size=UDim2.new(1,-32,1,-56), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), ScrollBarThickness=8})
+    new("UIListLayout", {Parent=scroll, Padding=UDim.new(0,8)})
+
+    local function clear()
+        for _,c in ipairs(scroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+    end
+
+    local function makeRow(name, alive)
+        local row = new("Frame", {Parent=scroll, Size=UDim2.new(1,-12,0,48), BackgroundColor3=CONF.CARD})
+        new("UICorner", {Parent=row, CornerRadius=UDim.new(0,8)})
+        new("UIStroke", {Parent=row, Color=Color3.fromRGB(50,50,54), Thickness=1})
+        new("TextLabel", {Parent=row, Position=UDim2.new(0,12,0,8), Size=UDim2.new(1,-140,0,32), BackgroundTransparency=1, Text=name, Font=CONF.FONT, TextSize=15, TextColor3=CONF.TEXT, TextXAlignment=Enum.TextXAlignment.Left})
+        local dot = new("Frame", {Parent=row, Size=UDim2.new(0,14,0,14), Position=UDim2.new(1,-112,0,17), BackgroundColor3 = alive and Color3.fromRGB(70,200,70) or Color3.fromRGB(220,70,70)})
+        new("UICorner", {Parent=dot, CornerRadius=UDim.new(1,0)})
+        new("TextLabel", {Parent=row, Position=UDim2.new(1,-92,0,8), Size=UDim2.new(0,80,0,32), BackgroundTransparency=1, Text = alive and "Còn" or "Không", Font=CONF.FONT, TextSize=13, TextColor3=CONF.MUTED})
+    end
+
+    local function scanBoss()
+        local out = {}
+        pcall(function()
+            for _,obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") then
+                    local nm = tostring(obj.Name):lower()
+                    -- các dạng tên boss phổ biến (bạn có thể mở rộng)
+                    if nm:find("boss") or nm:find("raid") or nm:find("giant") or nm:find("admiral") or nm:find("yeti") or nm:find("dragon") or nm:find("boss_") then
+                        table.insert(out, obj)
+                    end
+                end
+            end
+        end)
+        return out
+    end
+
+    local function refresh()
+        clear()
+        local arr = scanBoss()
+        if #arr == 0 then makeRow("Không tìm thấy boss trong workspace", false) end
+        local seen = {}
+        for _,obj in ipairs(arr) do
+            local nm = tostring(obj.Name)
+            if not seen[nm] then
+                seen[nm] = true
+                local alive = false
+                pcall(function()
+                    local hum = obj:FindFirstChildWhichIsA("Humanoid")
+                    if hum and hum.Health and hum.Health > 0 then alive = true end
+                end)
+                makeRow(nm, alive)
+            end
+        end
+        task.wait(0.05)
+        local tot = 0
+        for _,v in ipairs(scroll:GetChildren()) do if v:IsA("Frame") then tot = tot + v.Size.Y.Offset + 8 end end
+        scroll.CanvasSize = UDim2.new(0,0,0,tot + 12)
+    end
+
+    refresh()
+    spawn(function()
+        while true do
+            if main.Visible then refresh(); task.wait(CONF.BOSS_REFRESH) else task.wait(1) end
+        end
+    end)
+end
+
+-- ===== Teleport Page (CHỈ HIỂN THỊ) =====
+do
+    local p = pages["teleport"]
+    new("TextLabel", {Parent=p, Position=UDim2.new(0,16,0,12), Size=UDim2.new(1,-32,0,20), BackgroundTransparency=1, Text="Teleport (Chỉ hiển thị - KHÔNG thực hiện)", Font=CONF.FONT, TextSize=16, TextColor3=CONF.TEXT})
+    local info = new("TextLabel", {Parent=p, Position=UDim2.new(0,16,0,44), Size=UDim2.new(1,-32,0,40), BackgroundTransparency=1, Text="Tab liệt kê vị trí đảo (bạn có thể copy tọa độ). Script KHÔNG thực hiện teleport.", Font=CONF.FONT, TextSize=13, TextColor3=CONF.MUTED, TextWrapped=true})
+    local list = new("ScrollingFrame", {Parent=p, Position=UDim2.new(0,16,0,96), Size=UDim2.new(1,-32,1,-112), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0), ScrollBarThickness=8})
+    new("UIListLayout", {Parent=list, Padding=UDim.new(0,8)})
+
+    local function makeItem(title, pos)
+        local r = new("Frame", {Parent=list, Size=UDim2.new(1,-12,0,40), BackgroundColor3=CONF.CARD})
+        new("UICorner", {Parent=r, CornerRadius=UDim.new(0,8)})
+        new("UIStroke", {Parent=r, Color=Color3.fromRGB(50,50,54), Thickness=1})
+        new("TextLabel", {Parent=r, Position=UDim2.new(0,12,0,6), Size=UDim2.new(0.6,-12,0,28), BackgroundTransparency=1, Text=title, Font=CONF.FONT, TextSize=14, TextColor3=CONF.TEXT, TextXAlignment=Enum.TextXAlignment.Left})
+        local coordsTxt = string.format("X:%d Y:%d Z:%d", math.floor(pos.X), math.floor(pos.Y), math.floor(pos.Z))
+        new("TextLabel", {Parent=r, Position=UDim2.new(0.6,12,0,6), Size=UDim2.new(0.28,-12,0,28), BackgroundTransparency=1, Text=coordsTxt, Font=CONF.FONT, TextSize=12, TextColor3=CONF.MUTED, TextXAlignment=Enum.TextXAlignment.Right})
+    end
+
+    for _,inf in ipairs(ISLANDS) do makeItem(inf.name, inf.pos) end
+    task.wait(0.05)
+    local tot = 0
+    for _,v in ipairs(list:GetChildren()) do if v:IsA("Frame") then tot = tot + v.Size.Y.Offset + 8 end end
+    list.CanvasSize = UDim2.new(0,0,0,tot + 12)
+end
+
+-- ===== Settings Page =====
+do
+    local p = pages["settings"]
+    new("TextLabel", {Parent=p, Position=UDim2.new(0,16,0,12), Size=UDim2.new(1,-32,0,20), BackgroundTransparency=1, Text="Cài Đặt", Font=CONF.FONT, TextSize=16, TextColor3=CONF.TEXT})
+    local card = new("Frame", {Parent=p, Position=UDim2.new(0,16,0,48), Size=UDim2.new(1,-32,0,180), BackgroundColor3=CONF.CARD})
+    new("UICorner", {Parent=card, CornerRadius=UDim.new(0,8)})
+
+    local scaleLabel = new("TextLabel", {Parent=card, Position=UDim2.new(0,12,0,12), Size=UDim2.new(0,220,0,24), BackgroundTransparency=1, Text="Tỷ lệ UI (ví dụ: 1.0)", Font=CONF.FONT, TextSize=13, TextColor3=CONF.MUTED})
+    local scaleBox = new("TextBox", {Parent=card, Position=UDim2.new(0,12,0,44), Size=UDim2.new(0,140,0,28), Text="1.0", Font=CONF.FONT, TextSize=14, TextColor3=CONF.TEXT, ClearTextOnFocus=false})
+    new("UICorner", {Parent=scaleBox, CornerRadius=UDim.new(0,6)})
+    local resetBtn = new("TextButton", {Parent=card, Position=UDim2.new(0,168,0,44), Size=UDim2.new(0,140,0,28), Text="Reset vị trí", Font=CONF.FONT, TextSize=14, BackgroundColor3=Color3.fromRGB(70,70,74), TextColor3=CONF.TEXT})
+    new("UICorner", {Parent=resetBtn, CornerRadius=UDim.new(0,6)})
+    local unloadBtn = new("TextButton", {Parent=card, Position=UDim2.new(0,12,0,84), Size=UDim2.new(0,300,0,32), Text="Tắt UI (Unload)", Font=CONF.FONT, TextSize=14, BackgroundColor3=Color3.fromRGB(170,60,60), TextColor3=CONF.TEXT})
+    new("UICorner", {Parent=unloadBtn, CornerRadius=UDim.new(0,6)})
+
+    scaleBox.FocusLost:Connect(function(enter)
+        local v = tonumber(scaleBox.Text)
+        if v and v >= 0.6 and v <= 1.8 then
+            main.Size = UDim2.new(CONF.WIDTH_SCALE * v, 0, CONF.HEIGHT_SCALE * v, 0)
+            main.Position = UDim2.new(0.5,0,0.5,0)
+        else
+            scaleBox.Text = "1.0"
+        end
+    end)
+
+    resetBtn.MouseButton1Click:Connect(function()
+        main.Position = UDim2.new(0.5,0,0.5,0)
+        toggle.Position = UDim2.new(0.02,0,0.08,0)
+    end)
+
+    unloadBtn.MouseButton1Click:Connect(function()
+        pcall(function() blur.Enabled=false; blur.Size=0 end)
+        screen:Destroy()
+    end)
+end
+
+-- Dragging (main & toggle)
+do
+    local dragging, dragInput, dragStart, startPos
+    main.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true; dragStart = input.Position; startPos = main.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    main.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
+    RunService.Heartbeat:Connect(function()
+        if dragging and dragInput and dragStart and startPos then
+            local delta = dragInput.Position - dragStart
+            local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            pcall(function() main.Position = newPos end)
+        end
+    end)
+end
+do
+    local dragging2, input2, start2, startPos2
+    toggle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging2 = true; start2 = input.Position; startPos2 = toggle.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging2 = false end end)
+        end
+    end)
+    toggle.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then input2 = input end end)
+    RunService.Heartbeat:Connect(function()
+        if dragging2 and input2 and start2 and startPos2 then
+            local delta = input2.Position - start2
+            local newPos = UDim2.new(startPos2.X.Scale, startPos2.X.Offset + delta.X, startPos2.Y.Scale, startPos2.Y.Offset + delta.Y)
+            pcall(function() toggle.Position = newPos end)
+        end
+    end)
+end
+
+-- Open/Close with blur
+local opened = true
+local function openUI()
+    if opened then return end
+    opened = true
+    main.Visible = true
+    pcall(function() blur.Enabled=true; blur.Size=6 end)
+    local t = main.Position
+    main.Position = UDim2.new(t.X.Scale, t.X.Offset, t.Y.Scale, t.Y.Offset - 24)
+    TweenService:Create(main, TweenInfo.new(CONF.TWEEN), {Position=UDim2.new(t.X.Scale, t.X.Offset, t.Y.Scale, t.Y.Offset)}):Play()
+end
+local function closeUI()
+    if not opened then return end
+    opened = false
+    pcall(function() blur.Size=0; blur.Enabled=false end)
+    local out = UDim2.new(main.Position.X.Scale, main.Position.X.Offset, main.Position.Y.Scale, main.Position.Y.Offset - 24)
+    TweenService:Create(main, TweenInfo.new(CONF.TWEEN), {Position=out}):Play()
+    delay(CONF.TWEEN + 0.02, function() if not opened then main.Visible=false end end)
+end
+
+toggle.MouseButton1Click:Connect(function() if opened then closeUI() else openUI() end end)
+closeBtn.MouseButton1Click:Connect(closeUI)
+
+-- Ensure starting page
+for k,v in pairs(pages) do v.Visible = false end
+pages["server"].Visible = true; pages["server"].Position = UDim2.new(0,0,0,0)
+
+-- final visuals
+stroke.Color = CONF.ACCENT
+toggle.BackgroundColor3 = CONF.ACCENT
+toggleLabel.TextColor3 = Color3.new(1,1,1)
+
+print("[ModzRO] UI đã tải. Chỉ hiển thị (read-only).")
