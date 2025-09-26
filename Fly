@@ -1,0 +1,254 @@
+-- Modern Fly GUI by VanDucMCBer (có lưu vị trí menu)
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local Player = Players.LocalPlayer
+local Char = Player.Character or Player.CharacterAdded:Wait()
+local HRP = Char:WaitForChild("HumanoidRootPart")
+
+-- Dùng setgenv để lưu vị trí menu (giữ khi reload script hoặc đổi game)
+getgenv().VanDucFly_Pos = getgenv().VanDucFly_Pos or UDim2.new(0.2, 0, 0.3, 0)
+
+-- GUI chính
+local main = Instance.new("ScreenGui")
+main.Name = "VanDucFly"
+main.Parent = Player:WaitForChild("PlayerGui")
+main.ResetOnSpawn = false
+
+local Frame = Instance.new("Frame")
+Frame.Parent = main
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+Frame.BorderSizePixel = 0
+Frame.Position = getgenv().VanDucFly_Pos
+Frame.Size = UDim2.new(0, 240, 0, 150)
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = Frame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(120, 120, 255)
+UIStroke.Thickness = 2
+UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+UIStroke.Parent = Frame
+
+-- Tiêu đề
+local Title = Instance.new("TextLabel")
+Title.Parent = Frame
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, -35, 0, 35)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "VanDucMCBer"
+Title.TextColor3 = Color3.fromRGB(180, 200, 255)
+Title.TextSize = 22
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Cho phép kéo thả Frame bằng cách giữ tiêu đề
+local dragging, dragStart, startPos
+
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = Frame.Position
+    end
+end)
+
+Title.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+        local delta = input.Position - dragStart
+        local newPos = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+        Frame.Position = newPos
+        getgenv().VanDucFly_Pos = newPos -- 🔹 Lưu vị trí khi kéo
+    end
+end)
+
+Title.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- Nút Close
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Parent = Frame
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+CloseBtn.Text = "X"
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 18
+
+local UICornerClose = Instance.new("UICorner")
+UICornerClose.CornerRadius = UDim.new(0, 8)
+UICornerClose.Parent = CloseBtn
+
+-- Nút Open (ẩn ban đầu)
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Parent = main
+OpenBtn.Size = UDim2.new(0, 80, 0, 35)
+OpenBtn.Position = UDim2.new(0, 20, 0.85, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+OpenBtn.Text = "Open"
+OpenBtn.Font = Enum.Font.GothamBold
+OpenBtn.TextColor3 = Color3.fromRGB(30, 30, 30)
+OpenBtn.TextSize = 18
+OpenBtn.Visible = false
+
+local UICornerOpen = Instance.new("UICorner")
+UICornerOpen.CornerRadius = UDim.new(0, 8)
+UICornerOpen.Parent = OpenBtn
+
+-- Hàm tạo button hiện đại
+local function createButton(name, text, pos, color)
+    local btn = Instance.new("TextButton")
+    local corner = Instance.new("UICorner")
+    local stroke = Instance.new("UIStroke")
+
+    btn.Name = name
+    btn.Parent = Frame
+    btn.BackgroundColor3 = color
+    btn.Size = UDim2.new(0, 70, 0, 30)
+    btn.Position = pos
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 16
+
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = btn
+
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 1
+    stroke.Parent = btn
+
+    -- hover effect
+    btn.MouseEnter:Connect(function()
+        btn.BackgroundColor3 = btn.BackgroundColor3:Lerp(Color3.fromRGB(255,255,255), 0.2)
+        btn.TextColor3 = Color3.fromRGB(30,30,30)
+    end)
+    btn.MouseLeave:Connect(function()
+        btn.BackgroundColor3 = color
+        btn.TextColor3 = Color3.fromRGB(255,255,255)
+    end)
+
+    return btn
+end
+
+-- Các nút
+local up = createButton("up", "UP", UDim2.new(0.05, 0, 0.4, 0), Color3.fromRGB(100, 200, 255))
+local down = createButton("down", "DOWN", UDim2.new(0.35, 0, 0.4, 0), Color3.fromRGB(255, 170, 120))
+local flyBtn = createButton("fly", "FLY", UDim2.new(0.65, 0, 0.4, 0), Color3.fromRGB(170, 120, 255))
+local plus = createButton("plus", "+", UDim2.new(0.2, 0, 0.75, 0), Color3.fromRGB(120, 200, 140))
+local minus = createButton("minus", "-", UDim2.new(0.5, 0, 0.75, 0), Color3.fromRGB(255, 100, 120))
+
+-- Label hiển thị speed
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Parent = Frame
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Size = UDim2.new(1, 0, 0, 25)
+SpeedLabel.Position = UDim2.new(0, 0, 0.85, 0)
+SpeedLabel.Font = Enum.Font.Gotham
+SpeedLabel.Text = "Speed: 50"
+SpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+SpeedLabel.TextSize = 16
+
+-- Logic Fly
+local flying = false
+local speed = 50
+local bv, bg
+
+local function updateSpeedLabel()
+    SpeedLabel.Text = "Speed: " .. tostring(speed)
+end
+
+local function startFly()
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+        bv.Parent = HRP
+    end
+    if not bg then
+        bg = Instance.new("BodyGyro")
+        bg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+        bg.Parent = HRP
+    end
+    flying = true
+end
+
+local function stopFly()
+    flying = false
+    if bv then bv:Destroy() bv = nil end
+    if bg then bg:Destroy() bg = nil end
+end
+
+-- Nút bấm
+flyBtn.MouseButton1Click:Connect(function()
+    if flying then
+        stopFly()
+        flyBtn.Text = "FLY"
+    else
+        startFly()
+        flyBtn.Text = "STOP"
+    end
+end)
+
+up.MouseButton1Click:Connect(function()
+    if flying and bv then
+        bv.Velocity = Vector3.new(0, speed, 0)
+    end
+end)
+
+down.MouseButton1Click:Connect(function()
+    if flying and bv then
+        bv.Velocity = Vector3.new(0, -speed, 0)
+    end
+end)
+
+plus.MouseButton1Click:Connect(function()
+    speed = speed + 10
+    updateSpeedLabel()
+end)
+
+minus.MouseButton1Click:Connect(function()
+    speed = math.max(10, speed - 10)
+    updateSpeedLabel()
+end)
+
+-- Điều khiển bằng bàn phím
+RunService.RenderStepped:Connect(function()
+    if flying and bv and bg then
+        local camCF = workspace.CurrentCamera.CFrame
+        local dir = Vector3.new()
+
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir += camCF.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= camCF.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= camCF.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir += camCF.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0,1,0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.new(0,1,0) end
+
+        bv.Velocity = dir.Magnitude > 0 and dir.Unit * speed or Vector3.new()
+        bg.CFrame = camCF
+    end
+end)
+
+-- Ẩn/hiện menu
+CloseBtn.MouseButton1Click:Connect(function()
+    Frame.Visible = false
+    OpenBtn.Visible = true
+end)
+
+OpenBtn.MouseButton1Click:Connect(function()
+    Frame.Visible = true
+    OpenBtn.Visible = false
+end)
+
+-- Cập nhật label lần đầu
+updateSpeedLabel()
